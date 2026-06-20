@@ -13,7 +13,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ prIdOrN
       }, { status: 404 });
     }
 
-    const scanResult = await runPrScan(pr.id, "cloud");
+    const scanResult = await runPrScan(pr.id);
     const isProductionReady = scanResult.rating >= 9;
 
     return NextResponse.json({

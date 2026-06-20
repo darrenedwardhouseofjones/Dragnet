@@ -35,7 +35,7 @@ export async function POST(req: Request) {
         });
       }
 
-      const scanResult = await runPrScan(pr.id, "cloud");
+      const scanResult = await runPrScan(pr.id);
       const isProductionReady = scanResult.rating >= 9;
 
       return NextResponse.json({
