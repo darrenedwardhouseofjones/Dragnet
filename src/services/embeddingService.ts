@@ -1,4 +1,4 @@
-import { getLlmClient, getChatModel, getEmbeddingModel } from "../lib/llmClient";
+import { getChatClient, getEmbeddingClient, getChatModel, getEmbeddingModel } from "../lib/llmClient";
 
 export class EmbeddingService {
   /**
@@ -12,7 +12,7 @@ export class EmbeddingService {
     signature: string,
     sourceCode: string,
   ): Promise<string> {
-    const client = getLlmClient();
+    const client = getChatClient();
     const model = getChatModel();
     if (!client || !model) return "";
 
@@ -47,7 +47,7 @@ ${sourceCode}`;
    * "no results" when this returns empty.
    */
   public static async generateEmbedding(text: string): Promise<number[]> {
-    const client = getLlmClient();
+    const client = getEmbeddingClient();
     const model = getEmbeddingModel();
     if (!client || !model || !text) return [];
 

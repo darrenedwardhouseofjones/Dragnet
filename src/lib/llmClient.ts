@@ -1,65 +1,96 @@
 import OpenAI from "openai";
+import {
+  getActiveChatPreset,
+  getActiveEmbeddingPreset,
+  apiKeyHash,
+  migrateFromEnvLocalIfNeeded,
+  type Preset,
+} from "@/src/lib/llmPresets";
 
 /**
- * Lazy singleton for the OpenAI-compatible client (OpenRouter by default).
+ * Dual lazy singletons for the OpenAI-compatible client.
  *
- * Not instantiated at module load — that would break `next build` and
- * `tsc --noEmit` on fresh clones with empty env. Mirrors the prisma.ts
- * pattern of caching on globalThis so dev hot-reload doesn't leak sockets.
+ * Chat and embedding roles can be served by different presets (e.g.
+ * OpenRouter for chat, local Ollama for embeddings). Each getter looks
+ * up its active preset, builds a client keyed on
+ * `${presetId}|${endpoint}|${sha256(apiKey)}`, and memoizes on
+ * globalThis so dev hot-reload doesn't leak sockets.
  *
- * Returns null if LLM_API_KEY is unset. Callers handle gracefully
- * (review engine falls through to procedural findings, embedding service
- * returns empty vectors).
+ * Not instantiated at module load — that would break `next build` on
+ * fresh clones with no presets file. Mirrors the prisma.ts pattern.
+ *
+ * Returns null if no preset is active for the requested role. Callers
+ * handle gracefully (review falls through to procedural findings,
+ * embedding service returns empty vectors).
  */
 
-const DEFAULT_ENDPOINT = "https://openrouter.ai/api/v1";
+interface CachedClient {
+  client: OpenAI;
+  cacheKey: string;
+}
 
 const globalForLlm = globalThis as unknown & {
-  __llmClient?: OpenAI;
-  __llmClientKey?: string;
-  __llmClientEndpoint?: string;
+  __llmChatClient?: CachedClient | null;
+  __llmEmbeddingClient?: CachedClient | null;
 };
 
-export function getLlmEndpoint(): string {
-  return process.env.LLM_ENDPOINT || DEFAULT_ENDPOINT;
+function buildClient(preset: Preset): OpenAI {
+  return new OpenAI({
+    apiKey: preset.apiKey || "no-key-required",
+    baseURL: preset.endpoint,
+  });
+}
+
+function cacheKeyFor(preset: Preset): string {
+  return `${preset.id}|${preset.endpoint}|${apiKeyHash(preset.apiKey || "")}`;
+}
+
+/**
+ * Returns the OpenAI client for the currently-active chat preset.
+ * Reads the presets file fresh on every call (~2KB, sub-ms) so users
+ * don't need to restart the dev server after editing config.
+ *
+ * Returns null if no chat preset is active or the active preset has
+ * no chatModel configured (callers should bail to a fallback).
+ */
+export function getChatClient(): OpenAI | null {
+  migrateFromEnvLocalIfNeeded();
+  const preset = getActiveChatPreset();
+  if (!preset || !preset.chatModel) return null;
+
+  const key = cacheKeyFor(preset);
+  if (globalForLlm.__llmChatClient && globalForLlm.__llmChatClient.cacheKey === key) {
+    return globalForLlm.__llmChatClient.client;
+  }
+
+  const client = buildClient(preset);
+  globalForLlm.__llmChatClient = { client, cacheKey: key };
+  return client;
+}
+
+export function getEmbeddingClient(): OpenAI | null {
+  migrateFromEnvLocalIfNeeded();
+  const preset = getActiveEmbeddingPreset();
+  if (!preset || !preset.embeddingModel) return null;
+
+  const key = cacheKeyFor(preset);
+  if (globalForLlm.__llmEmbeddingClient && globalForLlm.__llmEmbeddingClient.cacheKey === key) {
+    return globalForLlm.__llmEmbeddingClient.client;
+  }
+
+  const client = buildClient(preset);
+  globalForLlm.__llmEmbeddingClient = { client, cacheKey: key };
+  return client;
 }
 
 export function getChatModel(): string | null {
-  const m = process.env.LLM_MODEL;
-  return m && m.length > 0 ? m : null;
+  migrateFromEnvLocalIfNeeded();
+  const preset = getActiveChatPreset();
+  return preset?.chatModel || null;
 }
 
 export function getEmbeddingModel(): string | null {
-  const m = process.env.LLM_EMBEDDING_MODEL;
-  return m && m.length > 0 ? m : null;
-}
-
-/**
- * Returns a cached OpenAI client keyed on the current apiKey+endpoint.
- * If the env values change (e.g., after a server restart), a fresh
- * client is constructed on the next call.
- */
-export function getLlmClient(): OpenAI | null {
-  const apiKey = process.env.LLM_API_KEY;
-  if (!apiKey) return null;
-
-  const endpoint = getLlmEndpoint();
-  const cacheKey = `${apiKey}|${endpoint}`;
-
-  if (
-    globalForLlm.__llmClient &&
-    globalForLlm.__llmClientKey === cacheKey
-  ) {
-    return globalForLlm.__llmClient;
-  }
-
-  const client = new OpenAI({
-    apiKey,
-    baseURL: endpoint,
-  });
-
-  globalForLlm.__llmClient = client;
-  globalForLlm.__llmClientKey = cacheKey;
-  globalForLlm.__llmClientEndpoint = endpoint;
-  return client;
+  migrateFromEnvLocalIfNeeded();
+  const preset = getActiveEmbeddingPreset();
+  return preset?.embeddingModel || null;
 }

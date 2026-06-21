@@ -1,5 +1,5 @@
 import { prisma } from "./src/lib/prisma";
-import { getLlmClient, getChatModel } from "./src/lib/llmClient";
+import { getChatClient, getChatModel } from "./src/lib/llmClient";
 
 export interface ScanResult {
   success: boolean;
@@ -301,7 +301,7 @@ export async function runPrScan(prId: string): Promise<ScanResult> {
     )
     .join("\n\n");
 
-  const client = getLlmClient();
+  const client = getChatClient();
 
   if (!client || !chatModel) {
     // No LLM configured — fall straight through to procedural findings.
