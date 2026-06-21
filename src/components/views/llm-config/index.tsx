@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { AlertCircle, Cpu, RefreshCw, Save, Sparkles } from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronRight, Cpu, RefreshCw, Save, Sparkles } from "lucide-react";
 import type { LlmPresetsState } from "../../../lib/types";
 import RolePanel from "./RolePanel";
 import {
@@ -42,6 +42,7 @@ export default function LlmConfigTabs() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<SaveResult | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -205,7 +206,23 @@ export default function LlmConfigTabs() {
               Pick a provider and model for each role. The two roles can use different providers — e.g. OpenRouter for chat + Ollama for embeddings. Changes save to <code>.greploop/llm-presets.json</code> and take effect immediately.
             </p>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowHelp((s) => !s)}
+            className="shrink-0 text-[10px] font-mono uppercase tracking-wider text-slate-400 hover:text-cyan-400 border border-white/10 hover:border-cyan-500/30 px-2.5 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer"
+            title={showHelp ? "Hide help" : "Show help"}
+            aria-expanded={showHelp}
+          >
+            {showHelp ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+            <span>Help</span>
+          </button>
         </div>
+
+        {showHelp && (
+          <div className="mb-4">
+            <ExplanatoryCard />
+          </div>
+        )}
 
         <div className="flex items-center gap-1 mb-4 border-b border-white/5">
           <TabButton active={tab === "chat"} onClick={() => setTab("chat")} accent="cyan" label="PR Reviewer (Chat)" />
@@ -253,8 +270,6 @@ export default function LlmConfigTabs() {
           )}
         </div>
       </div>
-
-      <ExplanatoryCard />
     </motion.div>
   );
 }
