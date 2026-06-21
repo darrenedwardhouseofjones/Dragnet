@@ -10,7 +10,7 @@ See `prd.md` for the full product spec.
 - **Database:** Postgres on Supabase, accessed via Prisma 7.8 + `@prisma/adapter-pg`
 - **Styling:** Tailwind CSS 4
 - **Auth:** Better Auth (planned — multi-tenant via organization plugin)
-- **AI:** OpenAI-compatible endpoints (OpenRouter by default) via `openai` SDK — pick chat + embedding models at runtime from the "LLM Settings" tab
+- **AI:** OpenAI-compatible endpoints (OpenRouter, Ollama, LM Studio) via `openai` SDK. Multiple provider presets stored in `.greploop/llm-presets.json` — pick one for chat and one for embedding independently (can be the same or different). Configure from the "LLM Settings" tab.
 
 ## Conventions
 
@@ -31,10 +31,18 @@ See `prd.md` for the full product spec.
 - `reviewService.ts` and `src/services/indexingService.ts` live where they are
   because of relative-import depth. Don't relocate without checking require()
   paths from `reviewService.ts`.
-- The OpenAI client is a **lazy singleton** at `src/lib/llmClient.ts` with a
-  `globalThis` guard (mirrors `prisma.ts`). Always go through `getLlmClient()`,
-  `getChatModel()`, `getEmbeddingModel()`, `getLlmEndpoint()` — never
-  instantiate `OpenAI` at module load (breaks `next build` on empty env).
+- The OpenAI clients are **lazy dual singletons** at `src/lib/llmClient.ts`
+  with `globalThis` guards (mirrors `prisma.ts`). Always go through
+  `getChatClient()` / `getChatModel()` for the chat role (drives
+  `reviewService.ts` and `embeddingService.ts:generateSummary`) and
+  `getEmbeddingClient()` / `getEmbeddingModel()` for the embedding role
+  (drives `embeddingService.ts:generateEmbedding`). The two roles can point
+  at different presets/endpoints. Never instantiate `OpenAI` at module load
+  (breaks `next build` on empty env).
+- LLM presets live in `.greploop/llm-presets.json` (gitignored, mode 0600).
+  Source of truth is `src/lib/llmPresets.ts`. The old `.env.local` LLM_*
+  vars auto-migrate into one preset on first read; new code reads from the
+  presets file, not env vars.
 
 ## Scripts
 
@@ -52,4 +60,5 @@ After schema changes, run `npx prisma db push` (dev) or create a migration.
 ## What NOT to commit
 
 `.env*` is gitignored except `.env.example`, which must contain placeholders
-only — never real credentials.
+only — never real credentials. `.greploop/` is also gitignored — it holds
+`.greploop/llm-presets.json` which contains API keys.
