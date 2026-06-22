@@ -28,10 +28,8 @@ const tools: ToolConfig[] = [
   { id: "codex", label: "Codex", icon: Code },
 ];
 
-function InstallModal({ tool, origin, apiKey, onClose }: { tool: ToolId; origin: string; apiKey: string | null; onClose: () => void }) {
+function InstallModal({ tool, origin, apiKey, onClose }: { tool: ToolId; origin: string; apiKey: string; onClose: () => void }) {
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
-  const [localKey, setLocalKey] = useState(apiKey);
-  const [generating, setGenerating] = useState(false);
 
   const copy = (text: string, section: string) => {
     navigator.clipboard.writeText(text);
@@ -39,21 +37,7 @@ function InstallModal({ tool, origin, apiKey, onClose }: { tool: ToolId; origin:
     setTimeout(() => setCopiedSection(null), 2000);
   };
 
-  const generate = async () => {
-    setGenerating(true);
-    try {
-      const res = await fetch("/api/mcp/keys", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: `BugHunter (${tool})` }),
-      });
-      const data = await res.json();
-      if (res.ok) setLocalKey(data.key);
-    } catch { /* ignore */ }
-    setGenerating(false);
-  };
-
-  const key = localKey;
+  const key = apiKey;
 
   interface CmdSection { label: string; command: string; }
   const sections: Record<ToolId, { title: string; steps: CmdSection[] }> = {
@@ -116,16 +100,9 @@ function InstallModal({ tool, origin, apiKey, onClose }: { tool: ToolId; origin:
           </button>
         </div>
         <div className="p-5 space-y-5">
-          {!localKey && (
+          {!apiKey && (
             <div className="space-y-3">
-              <p className="text-xs text-slate-400 font-mono">Generate an API key to use with {t.title}</p>
-              <button
-                onClick={generate}
-                disabled={generating}
-                className="w-full bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-black font-semibold text-xs px-4 py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 shadow-[0_4px_12px_rgba(6,182,212,0.15)] cursor-pointer"
-              >
-                {generating ? "Generating..." : <><Plus size={13} /> Generate Key for {t.title}</>}
-              </button>
+              <p className="text-xs text-slate-400 font-mono">No API key available. Generate one above first.</p>
             </div>
           )}
           {t.steps.map((step, i) => (
@@ -338,14 +315,36 @@ export default function McpKeysPanel() {
         <div className="flex flex-wrap gap-2">
           {tools.map((t) => {
             const Icon = t.icon;
+            const hasKey = newKeyValue !== null;
             return (
               <button
                 key={t.id}
-                onClick={() => setActiveTool(t.id)}
-                className="flex items-center gap-2 px-3 py-2 bg-slate-900/60 hover:bg-slate-800 border border-white/10 hover:border-cyan-500/30 rounded-lg text-xs font-mono text-slate-400 hover:text-cyan-300 transition-all cursor-pointer"
+                onClick={async () => {
+                  if (hasKey) { setActiveTool(t.id); return; }
+                  setCreating(true);
+                  try {
+                    const res = await fetch("/api/mcp/keys", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ name: `BugHunter (${t.label})` }),
+                    });
+                    const data = await res.json();
+                    if (res.ok) setNewKeyValue(data.key);
+                    await fetchKeys();
+                  } catch { /* ignore */ }
+                  setCreating(false);
+                  setActiveTool(t.id);
+                }}
+                className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-mono transition-all ${
+                  hasKey
+                    ? "bg-slate-900/60 hover:bg-slate-800 border-white/10 hover:border-cyan-500/30 text-slate-400 hover:text-cyan-300 cursor-pointer"
+                    : "bg-slate-900/30 border-white/5 text-slate-600 cursor-pointer hover:border-amber-500/30 hover:text-amber-400"
+                }`}
+                title={hasKey ? `Configure ${t.label}` : "Click to auto-generate an API key"}
               >
                 <Icon size={14} />
                 {t.label}
+                {!hasKey && <Plus size={10} className="text-amber-500" />}
               </button>
             );
           })}
@@ -353,7 +352,7 @@ export default function McpKeysPanel() {
       </div>
 
       {activeTool && (
-        <InstallModal tool={activeTool} origin={origin} apiKey={newKeyValue} onClose={() => { setActiveTool(null); fetchKeys(); }} />
+        <InstallModal tool={activeTool} origin={origin} apiKey={newKeyValue!} onClose={() => setActiveTool(null)} />
       )}
     </motion.div>
   );
