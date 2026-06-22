@@ -1,0 +1,182 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { motion } from "motion/react";
+import { Check, Copy, Key, Plus, Trash2 } from "lucide-react";
+
+interface McpKeyView {
+  id: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revoked: boolean;
+}
+
+export default function McpKeysPanel() {
+  const [keys, setKeys] = useState<McpKeyView[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [newKeyName, setNewKeyName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [newKeyValue, setNewKeyValue] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchKeys = async () => {
+    try {
+      const res = await fetch("/api/mcp/keys");
+      if (res.ok) setKeys(await res.json());
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => {
+    fetchKeys().finally(() => setIsLoading(false));
+  }, []);
+
+  const handleCreate = async () => {
+    setCreating(true);
+    setError(null);
+    setNewKeyValue(null);
+    try {
+      const res = await fetch("/api/mcp/keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newKeyName }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNewKeyValue(data.key);
+        setNewKeyName("");
+        await fetchKeys();
+      } else {
+        setError(data.error);
+      }
+    } catch {
+      setError("Failed to create key.");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleRevoke = async (id: string) => {
+    try {
+      await fetch(`/api/mcp/keys/${id}`, { method: "DELETE" });
+      await fetchKeys();
+    } catch { /* ignore */ }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64 text-slate-500 font-mono text-xs">
+        Loading MCP API keys...
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      key="mcp-keys-frame"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.1 }}
+      className="flex flex-col flex-1 overflow-y-auto space-y-5"
+    >
+      <div className="p-6 bg-[#0F1219] border border-white/10 rounded-xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-500/[0.02] rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-2 bg-cyan-500/10 text-cyan-400 rounded-lg">
+            <Key size={20} />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
+              MCP API Keys
+            </h3>
+            <p className="text-xs text-slate-400">
+              API keys for remote MCP clients (Claude Code, Cursor, etc.). Set the <code className="text-cyan-400">Authorization: Bearer</code> header when calling GrepLoop's MCP endpoints.
+            </p>
+          </div>
+        </div>
+
+        {keys.length > 0 && (
+          <div className="space-y-2 mb-6">
+            <h4 className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-mono font-bold">Active Keys</h4>
+            <div className="space-y-1.5">
+              {keys.map((k) => (
+                <div key={k.id} className="flex items-center justify-between gap-3 bg-slate-900/60 p-3 rounded-lg border border-white/5">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-bold text-slate-300">{k.name}</span>
+                      {k.revoked && (
+                        <span className="text-[9px] text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20 font-mono uppercase">Revoked</span>
+                      )}
+                      {!k.revoked && (
+                        <span className="text-[9px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 font-mono uppercase">Active</span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-mono mt-0.5">{k.prefix}</div>
+                    <div className="text-[9px] text-slate-600 font-mono">
+                      Created {new Date(k.createdAt).toLocaleDateString()}
+                      {k.lastUsedAt ? ` · Last used ${new Date(k.lastUsedAt).toLocaleDateString()}` : " · Never used"}
+                    </div>
+                  </div>
+                  {!k.revoked && (
+                    <button
+                      onClick={() => handleRevoke(k.id)}
+                      className="p-2 hover:bg-rose-500/10 rounded-lg text-slate-500 hover:text-rose-400 transition-colors"
+                      title="Revoke key"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {newKeyValue ? (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              <p className="text-xs text-amber-300 font-mono font-bold">Save this key — it won't be shown again</p>
+            </div>
+            <div className="bg-black/60 rounded-lg p-3 text-xs font-mono text-amber-200 break-all select-all leading-relaxed">
+              {newKeyValue}
+            </div>
+            <button
+              onClick={() => { navigator.clipboard.writeText(newKeyValue); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+              className="flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 font-mono transition-colors"
+            >
+              {copied ? <Check size={13} /> : <Copy size={13} />}
+              <span>{copied ? "Copied!" : "Copy to clipboard"}</span>
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <h4 className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-mono font-bold">Generate New Key</h4>
+            <div className="flex items-center gap-3">
+              <input
+                value={newKeyName}
+                onChange={(e) => setNewKeyName(e.target.value)}
+                placeholder="e.g. Claude Code"
+                className="flex-1 bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-xs font-mono text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/40"
+                onKeyDown={(e) => { if (e.key === "Enter" && newKeyName.trim()) handleCreate(); }}
+              />
+              <button
+                onClick={handleCreate}
+                disabled={creating || !newKeyName.trim()}
+                className="bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-black font-semibold text-xs px-4 py-2 rounded-lg transition-all flex items-center gap-2 shadow-[0_4px_12px_rgba(6,182,212,0.15)] cursor-pointer"
+              >
+                <Plus size={13} />
+                <span>{creating ? "Creating..." : "Generate Key"}</span>
+              </button>
+            </div>
+            {error && <p className="text-xs text-rose-400 font-mono">{error}</p>}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}

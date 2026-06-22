@@ -5,6 +5,7 @@ import { motion } from "motion/react";
 import { AlertCircle, ChevronDown, ChevronRight, Cpu, RefreshCw, Save, Sparkles } from "lucide-react";
 import type { LlmPresetsState } from "../../../lib/types";
 import RolePanel from "./RolePanel";
+import McpKeysPanel from "./McpKeysPanel";
 import {
   LLM_PRESETS_CHANGED_EVENT,
   fromViewState,
@@ -15,7 +16,7 @@ import {
   type WorkingPreset,
 } from "./shared";
 
-type Tab = "chat" | "embedding";
+type Tab = "chat" | "embedding" | "mcp";
 
 /**
  * Two-tab LLM config: Chat (PR reviewer) and Embedding (semantic search).
@@ -227,48 +228,55 @@ export default function LlmConfigTabs() {
         <div className="flex items-center gap-1 mb-4 border-b border-white/5">
           <TabButton active={tab === "chat"} onClick={() => setTab("chat")} accent="cyan" label="PR Reviewer (Chat)" />
           <TabButton active={tab === "embedding"} onClick={() => setTab("embedding")} accent="indigo" label="Semantic Search (Embedding)" />
+          <TabButton active={tab === "mcp"} onClick={() => setTab("mcp")} accent="amber" label="MCP API Keys" />
         </div>
 
-        <RolePanel
-          role={tab}
-          accent={tab === "chat" ? "cyan" : "indigo"}
-          presets={presets}
-          activePresetId={activeId}
-          canDeleteActive={canDeleteActive}
-          onSelectActive={(id) => handleSelectActive(tab, id)}
-          onAddProvider={() => handleAddProvider(tab)}
-          onDeleteActive={() => handleDeleteActive(tab)}
-          onUpdatePreset={updatePreset}
-          onFetchModels={handleFetchModels}
-        />
+        {tab === "mcp" ? (
+          <McpKeysPanel />
+        ) : (
+          <>
+            <RolePanel
+              role={tab}
+              accent={tab === "chat" ? "cyan" : "indigo"}
+              presets={presets}
+              activePresetId={activeId}
+              canDeleteActive={canDeleteActive}
+              onSelectActive={(id) => handleSelectActive(tab, id)}
+              onAddProvider={() => handleAddProvider(tab)}
+              onDeleteActive={() => handleDeleteActive(tab)}
+              onUpdatePreset={updatePreset}
+              onFetchModels={handleFetchModels}
+            />
 
-        <div className="flex flex-wrap items-center gap-3 pt-4 mt-4 border-t border-white/5">
-          <button
-            type="button"
-            onClick={handleSaveAll}
-            disabled={isSaving || presets.length === 0}
-            className="bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 active:scale-[0.99] text-black font-semibold text-xs px-4 py-2 rounded-lg transition-all flex items-center gap-2 shadow-[0_4px_12px_rgba(6,182,212,0.15)] cursor-pointer"
-          >
-            {isSaving ? <RefreshCw size={13} className="animate-spin" /> : <Save size={13} />}
-            <span>{isSaving ? "Saving..." : "Save Changes"}</span>
-          </button>
-          {dirty && !isSaving && (
-            <span className="text-[11px] font-mono px-2 py-1 rounded border text-amber-400 bg-amber-500/10 border-amber-500/20 flex items-center gap-1">
-              <AlertCircle size={10} /> Unsaved changes
-            </span>
-          )}
-          {saveResult && (
-            <span
-              className={`text-[11px] font-mono px-2 py-1 rounded border ${
-                saveResult.success
-                  ? "text-cyan-400 bg-cyan-500/10 border-cyan-500/20"
-                  : "text-rose-400 bg-rose-500/10 border-rose-500/20"
-              }`}
-            >
-              {saveResult.message}
-            </span>
-          )}
-        </div>
+            <div className="flex flex-wrap items-center gap-3 pt-4 mt-4 border-t border-white/5">
+              <button
+                type="button"
+                onClick={handleSaveAll}
+                disabled={isSaving || presets.length === 0}
+                className="bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 active:scale-[0.99] text-black font-semibold text-xs px-4 py-2 rounded-lg transition-all flex items-center gap-2 shadow-[0_4px_12px_rgba(6,182,212,0.15)] cursor-pointer"
+              >
+                {isSaving ? <RefreshCw size={13} className="animate-spin" /> : <Save size={13} />}
+                <span>{isSaving ? "Saving..." : "Save Changes"}</span>
+              </button>
+              {dirty && !isSaving && (
+                <span className="text-[11px] font-mono px-2 py-1 rounded border text-amber-400 bg-amber-500/10 border-amber-500/20 flex items-center gap-1">
+                  <AlertCircle size={10} /> Unsaved changes
+                </span>
+              )}
+              {saveResult && (
+                <span
+                  className={`text-[11px] font-mono px-2 py-1 rounded border ${
+                    saveResult.success
+                      ? "text-cyan-400 bg-cyan-500/10 border-cyan-500/20"
+                      : "text-rose-400 bg-rose-500/10 border-rose-500/20"
+                  }`}
+                >
+                  {saveResult.message}
+                </span>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </motion.div>
   );
@@ -282,11 +290,15 @@ function TabButton({
 }: {
   active: boolean;
   onClick: () => void;
-  accent: "cyan" | "indigo";
+  accent: "cyan" | "indigo" | "amber";
   label: string;
 }) {
-  const accentText = accent === "cyan" ? "text-cyan-400" : "text-indigo-400";
-  const accentBorder = accent === "cyan" ? "border-cyan-500" : "border-indigo-500";
+  const accentColors: Record<string, { text: string; border: string }> = {
+    cyan: { text: "text-cyan-400", border: "border-cyan-500" },
+    indigo: { text: "text-indigo-400", border: "border-indigo-500" },
+    amber: { text: "text-amber-400", border: "border-amber-500" },
+  };
+  const { text: accentText, border: accentBorder } = accentColors[accent];
   return (
     <button
       type="button"

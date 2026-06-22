@@ -192,7 +192,7 @@ export default function App() {
                 id="tab-llm-config"
               >
                 <Cpu size={13} />
-                <span>LLM Settings</span>
+                <span>Settings</span>
               </button>
             </div>
           </div>
