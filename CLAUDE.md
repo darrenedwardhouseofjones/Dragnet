@@ -10,7 +10,7 @@ See `prd.md` for the full product spec.
 - **Database:** Postgres on Supabase, accessed via Prisma 7.8 + `@prisma/adapter-pg`
 - **Styling:** Tailwind CSS 4
 - **Auth:** Better Auth (planned — multi-tenant via organization plugin)
-- **AI:** OpenAI-compatible endpoints (OpenRouter, Ollama, LM Studio) via `openai` SDK. Multiple provider presets stored in `.greploop/llm-presets.json` — pick one for chat and one for embedding independently (can be the same or different). Configure from the "LLM Settings" tab.
+- **AI:** OpenAI-compatible endpoints (OpenRouter, Ollama, LM Studio) via `openai` SDK. Multiple provider presets stored in `.greploop/llm-presets.json` — pick a **primary + optional fallback** for each role (chat and embedding) independently. If the primary fails, the fallback is tried automatically; if both fail, reviews return empty findings + null rating + actionable banner (never templated/hallucinated output), and embeddings trip a session circuit breaker. Configure from the "LLM Settings" tab.
 
 ## Conventions
 
@@ -39,6 +39,13 @@ See `prd.md` for the full product spec.
   (drives `embeddingService.ts:generateEmbedding`). The two roles can point
   at different presets/endpoints. Never instantiate `OpenAI` at module load
   (breaks `next build` on empty env).
+- Multi-provider fallback: `getChatChain()` / `getEmbeddingChain()` return
+  ordered arrays of `{client, model, name}` — primary first, fallback
+  second. `reviewService.ts` and `embeddingService.ts` iterate the chain
+  and try each provider until one succeeds. If both fail, reviews persist
+  no findings + null rating + actionable `systemWarn`; embeddings trip a
+  session-scoped `embeddingCircuitOpen` flag and return `[]` silently to
+  avoid log spam.
 - LLM presets live in `.greploop/llm-presets.json` (gitignored, mode 0600).
   Source of truth is `src/lib/llmPresets.ts`. The old `.env.local` LLM_*
   vars auto-migrate into one preset on first read; new code reads from the
@@ -90,3 +97,27 @@ After schema changes, run `npx prisma db push` (dev) or create a migration.
 `.env*` is gitignored except `.env.example`, which must contain placeholders
 only — never real credentials. `.greploop/` is also gitignored — it holds
 `.greploop/llm-presets.json` which contains API keys.
+
+## Troubleshooting
+
+**Symptom:** `/tmp/greploop-dev.log` shows `Failed to generate embedding: 500 error starting llama-server: llama-server binary not found` every few seconds.
+
+**Cause:** An Ollama package upgrade left the backend binary missing on this machine. Every embedding call fails, the indexing service keeps retrying, no vectors get written. `searchCodebase` / `findSimilar` tools return empty results — the LLM has diff-only context.
+
+**Fix (any of):**
+1. Reinstall Ollama: `curl -fsSL https://ollama.com/install.sh | sh` then `ollama pull mxbai-embed-large`. Restart the dev server.
+2. Configure a cloud embedding preset (OpenAI direct, Voyage AI, Cohere, etc.) as either primary or fallback in LLM Settings. The circuit breaker auto-resets on the next process restart.
+
+**Why only one log line per session:** the embedding service has a module-level circuit breaker (`embeddingCircuitOpen`). Once all providers fail, subsequent calls return `[]` instantly and a single `console.error` is emitted with the remediation hint. Restart the dev server after fixing the underlying issue.
+
+**Symptom:** PR review returns empty findings with a banner like "All chat providers failed (last error: …)".
+
+**Cause:** Every provider in the chat chain threw (network down, key revoked, model retired, etc.). The previous procedural fallback that templated fake findings was removed — empty + null + actionable banner is the honest failure mode.
+
+**Fix:** check the LLM Settings tab — both primary and fallback chat providers need valid endpoints + keys. Use "Fetch Models" on each preset to verify connectivity.
+
+**Symptom:** PR review returns empty findings with a banner like "Model X ended the agentic loop without calling submitReview".
+
+**Cause:** the model ran but never produced a `submitReview` tool call. Usually means the model doesn't support function calling, or the model is too small to follow the agentic loop. Tail `/tmp/greploop-dev.log` for `[review] iteration N/8` + `[review] tool …` + `[review] loop exited without submitReview` lines to confirm.
+
+**Fix:** switch to a model that supports function calling (most OpenRouter chat models do; some local Ollama models don't).

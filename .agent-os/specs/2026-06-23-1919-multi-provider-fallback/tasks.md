@@ -81,12 +81,16 @@ Mark each `- [ ]` as `- [x]` when complete. Per user convention: update this fil
 - [x] `npm test` — all 33 tests pass.
 - [ ] Manual: load `/` in browser, open LLM Settings, confirm all four pickers render and persist across reload.
 
-## Phase 8 — Ollama fix script + docs
+## Phase 8 — Ollama fix docs (script dropped)
 
-- [ ] Create `scripts/fix-ollama.sh` (curl install ollama + pull mxbai-embed-large).
-- [ ] `chmod +x scripts/fix-ollama.sh`.
-- [ ] Add "Troubleshooting" section to `CLAUDE.md` covering circuit breaker, fix script, fallback configuration.
-- [ ] Note multi-provider support in `README.md` LLM Settings description.
+- [x] Update `src/services/embeddingService.ts` circuit-breaker error message to print the install command inline (no script reference).
+- [x] Add "Troubleshooting" section to `CLAUDE.md` covering: embedding circuit breaker, Ollama reinstall command, honest-failure banner interpretation, submitReview-missing diagnostic.
+- [x] Update `CLAUDE.md` stack + conventions to describe primary/fallback chain + circuit breaker.
+- [x] Update `README.md` to describe multi-provider fallback + remove stale procedural-fallback mention.
+- [x] `npm run lint` clean.
+- [x] `npm test` — all 33 tests pass.
+
+Note: original plan included `scripts/fix-ollama.sh`. Dropped — the install command is a 3-line curl pipe that's better documented inline than committed as a script.
 
 ## Final verification
 

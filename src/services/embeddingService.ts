@@ -92,7 +92,8 @@ ${sourceCode}`;
       embeddingCircuitOpen = true;
       console.error(
         "[embedding] All providers failed. Further embedding calls will be skipped this session. " +
-          "Check Ollama install (scripts/fix-ollama.sh) and the cloud embedding preset in LLM Settings.",
+          "Reinstall Ollama (`curl -fsSL https://ollama.com/install.sh | sh` && `ollama pull mxbai-embed-large`) " +
+          "or configure a cloud embedding fallback in LLM Settings, then restart the dev server.",
       );
     }
     return [];
