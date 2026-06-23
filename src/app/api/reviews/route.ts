@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
-import { generateRealisticFindings } from "@/reviewService";
 
 export async function GET() {
   try {
@@ -51,37 +50,11 @@ export async function POST(req: Request) {
         where: { id: prId },
         data: { status: 'Completed' }
       });
-
-      const pr = await prisma.pullRequest.findUnique({ where: { id: prId } });
-      if (pr) {
-        const files = await prisma.prFile.findMany({
-          where: { prId },
-          select: { filename: true, diff: true, modifiedContent: true }
-        });
-        if (files.length > 0) {
-          const existingCount = await prisma.reviewFinding.count({ where: { prId } });
-          if (existingCount === 0) {
-            const findings = generateRealisticFindings(pr, files);
-            let index = 1;
-            for (const finding of findings) {
-              await prisma.reviewFinding.create({
-                data: {
-                  id: `find-live-${prId}-${index++}`,
-                  prId,
-                  repoId,
-                  category: finding.category || "Style",
-                  severity: finding.severity || "suggestion",
-                  filename: finding.filename || files[0].filename,
-                  line: finding.line || 1,
-                  explanation: finding.explanation || "No explanation provided.",
-                  diffSuggestion: finding.diffSuggestion || null,
-                  timestamp: new Date().toISOString()
-                }
-              });
-            }
-          }
-        }
-      }
+      // Manual review logging — do NOT seed templated findings. Previous
+      // behavior (procedural fallback) fabricated CORS-style hallucinations
+      // that looked like real LLM output. Now we leave the findings list
+      // empty; if the user wants real findings they can trigger a scan via
+      // /gloop or the dashboard, which uses the live LLM chain.
     }
 
     return NextResponse.json({ success: true, id: keyId }, { status: 201 });

@@ -1,93 +1,12 @@
 import { prisma } from "./src/lib/prisma";
-import { getChatClient, getChatModel } from "./src/lib/llmClient";
+import { getChatChain } from "./src/lib/llmClient";
 
 export interface ScanResult {
   success: boolean;
-  rating: number;
+  rating: number | null;
   findings: any[];
   usedModel: string;
   systemWarn?: string | null;
-}
-
-/**
- * Procedural fallback for when the LLM is unreachable, mis-configured, or
- * returns an unparseable response. The findings are deliberately shaped
- * like real findings so the UI continues to render correctly. The
- * `systemWarn` text surfaced in the UI explains what happened.
- */
-export function generateRealisticFindings(pr: any, files: any[]): any[] {
-  const list: any[] = [];
-  const filename = files[0]?.filename || "src/main.ts";
-
-  if (pr.repoId === "greploop-core" || pr.id?.includes("greploop-core")) {
-    list.push({
-      category: "Security",
-      severity: "blocker",
-      filename: "src/watcher/git.rs",
-      line: 142,
-      explanation: "GrepLoop Stack Security: A local shell command string uses unescaped variables. This format can lead directly to command injection vulnerability if branch names are manipulated by malicious local references.",
-      diffSuggestion: "let output = Command::new(\"git\")\n    .arg(\"show\")\n    .arg(branch_name)\n    .output()?;",
-      evidenceChain: [
-        { file: "src/watcher/git.rs", line: 120, text: "get_active_branch() retrieves branch name input from local workspace file watch event." },
-        { file: "src/watcher/git.rs", line: 135, text: "Branch name is written directly to temporary string formatter." },
-        { file: "src/watcher/git.rs", line: 142, text: "Command::new executes string command in unescaped subshell context." },
-      ],
-    });
-    list.push({
-      category: "Correctness",
-      severity: "warning",
-      filename: "src/main.rs",
-      line: 89,
-      explanation: "Calling unwrap() directly inside the daemon poll interval poses severe runtime panic risk if targeted directory structure is unlinked. Switch to a robust match closure or fallback block.",
-      diffSuggestion: "let repo = get_repo().unwrap_or_else(|_| {\n    log::warn!(\"Watch folder disappeared\");\n    return;\n});",
-      evidenceChain: [
-        { file: "src/main.rs", line: 55, text: "get_repo() parses directory layout and returns Option<Repository>." },
-        { file: "src/main.rs", line: 89, text: "Invokes unwrap() directly inside the system loop, precluding errors bubbling upwards." },
-      ],
-    });
-  } else if (pr.repoId === "react-dashboard" || pr.id?.includes("react-dashboard")) {
-    list.push({
-      category: "Security",
-      severity: "blocker",
-      filename: "src/components/MfaModal.tsx",
-      line: 42,
-      explanation: "Security check: Unencrypted MFA token values are written directly using document.cookie. This is vulnerable to cross-site scripting (XSS) extraction. Cookies must set HttpOnly, Secure, and SameSite parameters.",
-      diffSuggestion: "// Relocate critical secrets persistence server-side, or use session state variables.",
-      evidenceChain: [
-        { file: "src/components/MfaModal.tsx", line: 10, text: "Generates user's MFA secret payload token." },
-        { file: "src/components/MfaModal.tsx", line: 25, text: "Renders verification response success state." },
-        { file: "src/components/MfaModal.tsx", line: 42, text: "Stores token client-side with document.cookie without secure/HttpOnly flags." },
-      ],
-    });
-  } else {
-    list.push({
-      category: "Security",
-      severity: "warning",
-      filename: "src/middleware/cors.ts",
-      line: 4,
-      explanation: "Caution: CORS header has '*' wildcard setting enabled in active staging configs. Exposing wildcard routing enables SSRF and malicious framing layouts.",
-      diffSuggestion: "origin: process.env.NODE_ENV === 'production' ? 'https://app.greploop.com' : 'http://localhost:3000'",
-      evidenceChain: [
-        { file: "src/middleware/cors.ts", line: 1, text: "Initializes express middleware context." },
-        { file: "src/middleware/cors.ts", line: 4, text: "Applies origin: '*' setting to allow unrestricted global cross-origin requests." },
-      ],
-    });
-  }
-
-  list.push({
-    category: "Style",
-    severity: "suggestion",
-    filename: filename,
-    line: 12,
-    explanation: "Standard compliance: Consider splitting complex loop blocks into private modular functions to keep maintainability high.",
-    diffSuggestion: "// Separated subroutine snippet",
-    evidenceChain: [
-      { file: filename, line: 1, text: "Function signature entry block." },
-      { file: filename, line: 12, text: "Complex nested branch execution context detects structural maintainability degradation." },
-    ],
-  });
-
-  return list;
 }
 
 /**
@@ -290,9 +209,8 @@ export async function runPrScan(prId: string): Promise<ScanResult> {
   await prisma.pullRequest.updateMany({ where: { id: prId }, data: { status: "In Progress" } });
 
   let findings: any[] = [];
-  let rating = 5;
-  const chatModel = getChatModel();
-  let usedModel = chatModel || "unconfigured";
+  let rating: number | null = null;
+  let usedModel = "unconfigured";
   let systemWarn: string | null = null;
 
   // 4. Retrieve codebase-wide multi-hop context from indexed AST tables
@@ -329,16 +247,24 @@ export async function runPrScan(prId: string): Promise<ScanResult> {
     )
     .join("\n\n");
 
-  const client = getChatClient();
+  // 6. Run agentic review loop, iterating providers in the chain.
+  //    Primary first, then fallback if configured. If every provider
+  //    fails or all loops end without a submitReview, we surface an
+  //    honest empty-failings + null-rating result with an actionable
+  //    systemWarn. Never fabricate templated findings — three months
+  //    of solarplanner "reviews" were that template silently masking
+  //    LLM failures.
+  const chain = getChatChain();
+  let agenticError: string | null = null;
+  let finalReview: any = null;
 
-  if (!client || !chatModel) {
-    // No LLM configured — fall straight through to procedural findings.
-    systemWarn = "No LLM endpoint or chat model configured. Open the LLM Settings tab, enter your OpenRouter key, and pick a model to get real reviews.";
-    findings = generateRealisticFindings(pr, files);
-    rating = findings.some((f) => f.severity === "blocker") ? 4 : 6;
+  if (chain.length === 0) {
+    systemWarn = "No LLM endpoint or chat model configured. Open the LLM Settings tab and configure at least one provider.";
   } else {
-    try {
-      const initialPrompt = `Your mission: audit this PR with maximum prejudice. Assume the author is hiding something. Trace every changed function across the codebase — check its callers, its callees, its error handling, its edge cases. Use \`searchCodebase\`, \`getCallers\`, and \`findSimilar\` to validate that nothing is overlooked.
+    providerLoop: for (const { client, model, name } of chain) {
+      usedModel = model;
+      try {
+        const initialPrompt = `Your mission: audit this PR with maximum prejudice. Assume the author is hiding something. Trace every changed function across the codebase — check its callers, its callees, its error handling, its edge cases. Use \`searchCodebase\`, \`getCallers\`, and \`findSimilar\` to validate that nothing is overlooked.
 When you are satisfied (or outraged), call \`submitReview\` exactly once.
 
 === CANDIDATE PR INFORMATION ===
@@ -351,107 +277,110 @@ ${codebaseContext ? `=== PRE-FETCHED AST SYMBOLS & CALL-GRAPH LINKAGES ===\n${co
 === CHANGED FILES & CONTEXT ===
 ${diffPayload}`;
 
-      const messages: any[] = [
-        { role: "system", content: SYSTEM_INSTRUCTION },
-        { role: "user", content: initialPrompt },
-      ];
+        const messages: any[] = [
+          { role: "system", content: SYSTEM_INSTRUCTION },
+          { role: "user", content: initialPrompt },
+        ];
 
-      let loopCount = 0;
-      let finalReview: any = null;
+        let loopCount = 0;
 
-      while (loopCount < 8 && !finalReview) {
-        loopCount++;
-        const response = await client.chat.completions.create({
-          model: chatModel,
-          messages,
-          tools,
-          tool_choice: "auto",
-          temperature: 0.2,
-        });
+        while (loopCount < 8 && !finalReview) {
+          loopCount++;
+          const response = await client.chat.completions.create({
+            model,
+            messages,
+            tools,
+            tool_choice: "auto",
+            temperature: 0.2,
+          });
 
-        const msg = response.choices?.[0]?.message;
-        if (!msg) break;
-        messages.push(msg);
+          const msg = response.choices?.[0]?.message;
+          if (!msg) break;
+          messages.push(msg);
 
-        if (msg.tool_calls && msg.tool_calls.length > 0) {
-          for (const call of msg.tool_calls) {
-            // OpenAI SDK v6 unions function-tool calls with custom-tool calls;
-            // only the former has .function. Skip anything else.
-            if (!("function" in call)) continue;
-            const fnName = call.function?.name;
-            const fnArgs = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
+          if (msg.tool_calls && msg.tool_calls.length > 0) {
+            for (const call of msg.tool_calls) {
+              // OpenAI SDK v6 unions function-tool calls with custom-tool calls;
+              // only the former has .function. Skip anything else.
+              if (!("function" in call)) continue;
+              const fnName = call.function?.name;
+              const fnArgs = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
 
-            if (fnName === "submitReview") {
-              finalReview = fnArgs;
-              break;
-            }
-
-            let toolResult = "No results.";
-            try {
-              if (fnName === "searchCodebase") {
-                const items = await prisma.symbol.findMany({
-                  where: { repoId: pr.repoId, name: { contains: fnArgs.query } },
-                  take: 10,
-                  select: { id: true, name: true, kind: true, filePath: true, lineStart: true, lineEnd: true, summary: true },
-                });
-                if (items && items.length > 0) toolResult = JSON.stringify(items);
-              } else if (fnName === "getCallers") {
-                const edges = await prisma.edge.findMany({ where: { repoId: pr.repoId, toId: fnArgs.symbolId } });
-                if (edges && edges.length > 0) toolResult = JSON.stringify(edges);
-              } else if (fnName === "findSimilar") {
-                const { IndexingService: idxSvc } = await import("./src/services/indexingService");
-                const scored = await idxSvc.semanticSearch(pr.repoId, fnArgs.query, 5);
-                if (scored && scored.length > 0) toolResult = JSON.stringify(scored);
+              if (fnName === "submitReview") {
+                finalReview = fnArgs;
+                break;
               }
-            } catch (e) {
-              console.error(`Tool ${fnName} failed:`, e);
-              toolResult = `Tool error: ${(e as any)?.message || String(e)}`;
-            }
 
-            messages.push({
-              role: "tool",
-              tool_call_id: call.id,
-              content: toolResult,
-            });
-          }
-          if (finalReview) break;
-          // Continue loop with the tool results now appended.
-        } else {
-          // No tool call — model returned text (some endpoints/models don't
-          // support function calling). Try to parse the body as JSON.
-          const rawText = msg.content?.trim() || "{}";
-          try {
-            const cleanJson = rawText
-              .replace(/```json/gi, "")
-              .replace(/```/g, "")
-              .trim();
-            const parsed = JSON.parse(cleanJson);
-            if (parsed.rating && parsed.findings) {
-              finalReview = parsed;
+              let toolResult = "No results.";
+              try {
+                if (fnName === "searchCodebase") {
+                  const items = await prisma.symbol.findMany({
+                    where: { repoId: pr.repoId, name: { contains: fnArgs.query } },
+                    take: 10,
+                    select: { id: true, name: true, kind: true, filePath: true, lineStart: true, lineEnd: true, summary: true },
+                  });
+                  if (items && items.length > 0) toolResult = JSON.stringify(items);
+                } else if (fnName === "getCallers") {
+                  const edges = await prisma.edge.findMany({ where: { repoId: pr.repoId, toId: fnArgs.symbolId } });
+                  if (edges && edges.length > 0) toolResult = JSON.stringify(edges);
+                } else if (fnName === "findSimilar") {
+                  const { IndexingService: idxSvc } = await import("./src/services/indexingService");
+                  const scored = await idxSvc.semanticSearch(pr.repoId, fnArgs.query, 5);
+                  if (scored && scored.length > 0) toolResult = JSON.stringify(scored);
+                }
+              } catch (e) {
+                console.error(`Tool ${fnName} failed:`, e);
+                toolResult = `Tool error: ${(e as any)?.message || String(e)}`;
+              }
+
+              messages.push({
+                role: "tool",
+                tool_call_id: call.id,
+                content: toolResult,
+              });
             }
-          } catch {
-            // not JSON — give up on this scan path
+            if (finalReview) break;
+            // Continue loop with the tool results now appended.
+          } else {
+            // No tool call — model returned text (some endpoints/models don't
+            // support function calling). Try to parse the body as JSON.
+            const rawText = msg.content?.trim() || "{}";
+            try {
+              const cleanJson = rawText
+                .replace(/```json/gi, "")
+                .replace(/```/g, "")
+                .trim();
+              const parsed = JSON.parse(cleanJson);
+              if (parsed.rating && parsed.findings) {
+                finalReview = parsed;
+              }
+            } catch {
+              // not JSON — give up on this scan path
+            }
+            break;
           }
-          break;
         }
-      }
 
-      if (finalReview) {
-        findings = finalReview.findings || [];
-        rating = Math.max(1, Math.min(10, finalReview.rating || 5));
-      } else {
-        // Loop ended without a final review (max iterations, model refusal,
-        // or unparseable text). Fall through to procedural so the UI still
-        // shows something.
-        systemWarn = `Model ${chatModel} ended the agentic loop without a final review. Showing procedural fallback findings.`;
-        findings = generateRealisticFindings(pr, files);
-        rating = findings.some((f) => f.severity === "blocker") ? 4 : 6;
+        if (finalReview) {
+          // Success — exit the chain loop early.
+          break providerLoop;
+        }
+        // Else: provider ran without exception but produced no submitReview.
+        // Fall through to the next provider (if any).
+      } catch (err: any) {
+        console.warn(`[review] chat provider ${name} failed: ${err.message}`);
+        agenticError = `${name}: ${err.message}`;
+        // try next provider
       }
-    } catch (aiErr: any) {
-      console.error("LLM call failed, falling back to procedural findings...", aiErr);
-      systemWarn = `LLM call failed (${aiErr.message}). Showing procedural fallback findings.`;
-      findings = generateRealisticFindings(pr, files);
-      rating = findings.some((f) => f.severity === "blocker") ? 4 : 6;
+    }
+
+    if (finalReview) {
+      findings = finalReview.findings || [];
+      rating = Math.max(1, Math.min(10, finalReview.rating || 5));
+    } else if (agenticError) {
+      systemWarn = `All chat providers failed (last error: ${agenticError}). Check your internet connection and LLM Settings.`;
+    } else {
+      systemWarn = `Model ${usedModel} ended the agentic loop without calling submitReview. Check that the model supports tool calling, or pick a different model in LLM Settings.`;
     }
   }
 

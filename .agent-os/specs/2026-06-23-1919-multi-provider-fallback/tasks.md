@@ -25,12 +25,16 @@ Mark each `- [ ]` as `- [x]` when complete. Per user convention: update this fil
 
 ## Phase 3 — Review service: iterate chain, honest failure
 
-- [ ] Change `let rating = 5;` to `let rating: number | null = null;` at `reviewService.ts:293`.
-- [ ] Delete `generateRealisticFindings()` (lines 18-91).
-- [ ] Delete the three call sites at lines 337, 446, 452.
-- [ ] Replace the `if (!client || !chatModel)` block + try/catch with a chain iteration loop.
-- [ ] Inside the loop: run the agentic loop parameterized by `client`/`model`. Break on `finalReview`. Catch per-provider errors and continue.
-- [ ] After the loop: if `finalReview`, use its findings/rating. Otherwise set actionable `systemWarn` and leave findings `[]`/rating `null`.
+- [x] Change `let rating = 5;` to `let rating: number | null = null;` in `reviewService.ts`.
+- [x] Update `ScanResult.rating` type to `number | null`.
+- [x] Delete `generateRealisticFindings()` (was lines 18-91).
+- [x] Delete the three call sites in `reviewService.ts` (was 337, 446, 452).
+- [x] Replace the `if (!client || !chatModel)` block + try/catch with a chain iteration loop.
+- [x] Inside the loop: run the agentic loop parameterized by `client`/`model`. Break on `finalReview`. Catch per-provider errors and continue.
+- [x] After the loop: if `finalReview`, use its findings/rating. Otherwise set actionable `systemWarn` and leave findings `[]`/rating `null`.
+- [x] Refactor `src/app/api/reviews/route.ts` to drop procedural seeding on manual review log (second caller of deleted function).
+- [x] `npm run lint` clean.
+- [x] `npm test` — all 33 tests pass.
 - [ ] Manual: trigger scan on solarplanner `feature/agent-blog-api`. Confirm either real findings OR empty + systemWarn, never templated findings.
 
 ## Phase 4 — Embedding service: chain + circuit breaker
