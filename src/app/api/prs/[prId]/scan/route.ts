@@ -3,6 +3,7 @@ import { prisma } from "@/src/lib/prisma";
 import { runPrScan } from "@/reviewService";
 import { refreshPrFiles } from "@/src/lib/getRealLocalPrs";
 import { assertIndexFresh } from "@/src/lib/indexFreshness";
+import { IndexingService } from "@/src/services/indexingService";
 
 export async function POST(req: Request, { params }: { params: Promise<{ prId: string }> }) {
   const { prId } = await params;
@@ -27,20 +28,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ prId: s
 
     const freshness = assertIndexFresh(repo);
     if (freshness.ok === false) {
-      return NextResponse.json(
-        {
-          error: freshness.kind,
-          message: freshness.message,
-          repoId: pr.repoId,
-        },
-        { status: 409 },
-      );
+      if (freshness.kind === "INDEX_REQUIRED") {
+        return NextResponse.json(
+          { error: freshness.kind, message: freshness.message, repoId: pr.repoId },
+          { status: 409 },
+        );
+      }
+      // STALE_INDEX — auto-trigger incremental index, then proceed
+      if (repo.path) {
+        await IndexingService.indexFolder(pr.repoId, repo.path);
+      }
     }
 
     await prisma.pullRequest.updateMany({ where: { id: prId }, data: { status: 'In Progress' } });
 
-    // Refresh git diff before scanning — ensures PrFile records are current
-    // even if the PR was just created or files were never fetched.
     const repoPath = repo.path;
     const baseBranch = pr.targetBranch || repo.baseBranch || "main";
     if (repoPath && pr.sourceBranch) {

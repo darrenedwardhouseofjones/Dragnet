@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, Folder, GitBranch, Plus, Settings, Sparkles } from "lucide-react";
+import { Activity, BarChart3, Folder, GitBranch, Plus, Settings, Sparkles } from "lucide-react";
 import type { ActivityLog, LlmPresetsState, PullRequest, Repository } from "../lib/types";
 import { getStatusBadgeStyle } from "../lib/types";
 
@@ -12,6 +12,7 @@ interface Props {
   selectedRepoId: string;
   onSelectRepo: (repoId: string) => void;
   onEditRepo: (repo: Repository) => void;
+  onRepoSettings: (repo: Repository) => void;
   prs: PullRequest[];
   selectedPrId: string;
   onSelectPr: (prId: string) => void;
@@ -26,6 +27,7 @@ export default function DashboardSidebar({
   selectedRepoId,
   onSelectRepo,
   onEditRepo,
+  onRepoSettings,
   prs,
   selectedPrId,
   onSelectPr,
@@ -70,16 +72,17 @@ export default function DashboardSidebar({
       `}
       id="sidebar-panel-container"
     >
-      <ProjectsPane
-        repos={repos}
-        selectedRepoId={selectedRepoId}
-        onSelectRepo={onSelectRepo}
-        onEditRepo={onEditRepo}
-        prs={prs}
-        selectedPrId={selectedPrId}
-        onSelectPr={onSelectPr}
-        onAddProject={onAddProject}
-      />
+        <ProjectsPane
+          repos={repos}
+          selectedRepoId={selectedRepoId}
+          onSelectRepo={onSelectRepo}
+          onEditRepo={onEditRepo}
+          onRepoSettings={onRepoSettings}
+          prs={prs}
+          selectedPrId={selectedPrId}
+          onSelectPr={onSelectPr}
+          onAddProject={onAddProject}
+        />
 
       <LlmRouterPane state={llmPresets} onOpenSettings={onOpenLlmSettings} />
 
@@ -93,6 +96,7 @@ function ProjectsPane({
   selectedRepoId,
   onSelectRepo,
   onEditRepo,
+  onRepoSettings,
   prs,
   selectedPrId,
   onSelectPr,
@@ -102,6 +106,7 @@ function ProjectsPane({
   selectedRepoId: string;
   onSelectRepo: (repoId: string) => void;
   onEditRepo: (repo: Repository) => void;
+  onRepoSettings: (repo: Repository) => void;
   prs: PullRequest[];
   selectedPrId: string;
   onSelectPr: (prId: string) => void;
@@ -140,6 +145,7 @@ function ProjectsPane({
                   isRepoSelected={isRepoSelected}
                   onSelect={() => onSelectRepo(repo.id)}
                   onEdit={() => onEditRepo(repo)}
+                  onRepoSettings={() => onRepoSettings(repo)}
                 />
                 {isRepoSelected && (
                   <PrList
@@ -162,11 +168,13 @@ function RepoRow({
   isRepoSelected,
   onSelect,
   onEdit,
+  onRepoSettings,
 }: {
   repo: Repository;
   isRepoSelected: boolean;
   onSelect: () => void;
   onEdit: () => void;
+  onRepoSettings: () => void;
 }) {
   return (
     <div
@@ -207,9 +215,20 @@ function RepoRow({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
+              onRepoSettings();
+            }}
+            title="Repo settings & index stats"
+            className="text-slate-500 hover:text-cyan-400 transition-all cursor-pointer"
+          >
+            <BarChart3 size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
               onEdit();
             }}
-            title="Edit project"
+            title="Edit connection details"
             className="text-slate-500 hover:text-cyan-400 transition-all cursor-pointer"
           >
             <Settings size={12} />

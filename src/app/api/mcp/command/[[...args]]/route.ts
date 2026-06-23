@@ -4,6 +4,7 @@ import { findPrByIdOrNumber, findPrByBranch } from "@/src/lib/findPr";
 import { refreshPrFiles } from "@/src/lib/getRealLocalPrs";
 import { runPrScan } from "@/reviewService";
 import { authenticateApiRequest } from "@/src/lib/apiAuth";
+import { IndexingService } from "@/src/services/indexingService";
 import { assertIndexFresh } from "@/src/lib/indexFreshness";
 
 function defaultRepoId(url: string, args?: string[]): string | null {
@@ -149,7 +150,13 @@ async function handlePrCheck(args: any): Promise<string> {
 
   const freshness = assertIndexFresh(repo);
   if (freshness.ok === false) {
-    return `> ⚠ **${freshness.kind === "INDEX_REQUIRED" ? "Index required" : "Stale index"}.** ${freshness.message}`;
+    if (freshness.kind === "INDEX_REQUIRED") {
+      return `> ⚠ **Index required.** ${freshness.message}`;
+    }
+    // STALE_INDEX — auto-trigger incremental index
+    if (repo.path) {
+      await IndexingService.indexFolder(pr.repoId, repo.path);
+    }
   }
 
   try {

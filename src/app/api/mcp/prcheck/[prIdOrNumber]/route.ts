@@ -3,6 +3,7 @@ import { prisma } from "@/src/lib/prisma";
 import { findPrByIdOrNumber } from "@/src/lib/findPr";
 import { runPrScan } from "@/reviewService";
 import { authenticateApiRequest } from "@/src/lib/apiAuth";
+import { IndexingService } from "@/src/services/indexingService";
 import { assertIndexFresh } from "@/src/lib/indexFreshness";
 
 export async function GET(req: Request, { params }: { params: Promise<{ prIdOrNumber: string }> }) {
@@ -34,10 +35,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ prIdOrNu
 
     const freshness = assertIndexFresh(repo);
     if (freshness.ok === false) {
-      return NextResponse.json({
-        status: "Error",
-        message: freshness.message,
-      }, { status: 409 });
+      if (freshness.kind === "INDEX_REQUIRED") {
+        return NextResponse.json({ status: "Error", message: freshness.message }, { status: 409 });
+      }
+      // STALE_INDEX — auto-trigger incremental index
+      if (repo.path) {
+        await IndexingService.indexFolder(pr.repoId, repo.path);
+      }
     }
 
     const scanResult = await runPrScan(pr.id);

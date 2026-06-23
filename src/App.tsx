@@ -21,15 +21,17 @@ import DashboardSidebar from "./components/DashboardSidebar";
 import PrsView from "./components/views/PrsView";
 import AddRepoModal from "./components/modals/addRepo";
 import EditRepoModal from "./components/modals/editRepo";
+import RepoSettingsModal from "./components/modals/repoSettings/RepoSettingsModal";
 import WebhookPrompt from "./components/modals/addRepo/WebhookPrompt";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useEditRepo } from "./hooks/useEditRepo";
-import { type ActiveTab } from "./lib/types";
+import { type ActiveTab, type Repository } from "./lib/types";
 
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<ActiveTab>("prs");
   const [pendingWebhook, setPendingWebhook] = useState<{ repoId: string; repoName: string; hasPat: boolean } | null>(null);
+  const [settingsRepo, setSettingsRepo] = useState<Repository | null>(null);
 
   const d = useDashboardData();
   const ed = useEditRepo({
@@ -111,6 +113,7 @@ export default function App() {
             d.fetchPrsForSelectedRepo(repoId, false);
           }}
           onEditRepo={(repo) => ed.openEditor(repo)}
+          onRepoSettings={(repo) => setSettingsRepo(repo)}
           prs={d.prs}
           selectedPrId={d.selectedPrId}
           onSelectPr={(prId) => {
@@ -404,6 +407,42 @@ export default function App() {
             setNewDeployKey={ed.setEditDeployKey}
             newPat={ed.editPat}
             setNewPat={ed.setEditPat}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: Repo Settings (index stats + destructive reset) */}
+      <AnimatePresence>
+        {settingsRepo && (
+          <RepoSettingsModal
+            repo={settingsRepo}
+            onClose={() => setSettingsRepo(null)}
+            onResetIndex={async (repoId) => {
+              const res = await fetch(`/api/repos/${repoId}/reindex`, { method: "POST" });
+              if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data?.message || `Reset failed (${res.status})`);
+              }
+              // Poll for completion
+              const deadline = Date.now() + 15 * 60 * 1000;
+              while (Date.now() < deadline) {
+                await new Promise((r) => setTimeout(r, 5000));
+                const poll = await fetch(`/api/repos/${repoId}`);
+                if (poll.ok) {
+                  const repo = await poll.json();
+                  if (repo?.indexedAt) {
+                    return;
+                  }
+                }
+              }
+            }}
+            onRefresh={async () => {
+              d.handleTriggerReviewPass();
+              if (d.selectedRepoId) {
+                await d.fetchPrsForSelectedRepo(d.selectedRepoId, true);
+              }
+              setSettingsRepo(null);
+            }}
           />
         )}
       </AnimatePresence>

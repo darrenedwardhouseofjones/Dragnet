@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { runPrScan } from "@/reviewService";
 import { authenticateApiRequest } from "@/src/lib/apiAuth";
+import { IndexingService } from "@/src/services/indexingService";
 import { assertIndexFresh } from "@/src/lib/indexFreshness";
 
 export async function POST(req: Request) {
@@ -33,14 +34,16 @@ export async function POST(req: Request) {
 
     const freshness = assertIndexFresh(repo);
     if (freshness.ok === false) {
-      return NextResponse.json(
-        {
-          passed: false,
-          error: freshness.kind,
-          message: freshness.message,
-        },
-        { status: 409 },
-      );
+      if (freshness.kind === "INDEX_REQUIRED") {
+        return NextResponse.json(
+          { passed: false, error: freshness.kind, message: freshness.message },
+          { status: 409 },
+        );
+      }
+      // STALE_INDEX — auto-trigger incremental index
+      if (repo.path) {
+        await IndexingService.indexFolder(repo.id, repo.path);
+      }
     }
 
     const pr = await prisma.pullRequest.findFirst({

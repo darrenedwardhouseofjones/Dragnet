@@ -1,11 +1,9 @@
 "use client";
 
-import { useState } from "react";
 import { motion } from "motion/react";
 import {
   AlertTriangle,
   Calendar,
-  Database,
   Download,
   FileCode2,
   GitBranch,
@@ -128,8 +126,6 @@ function PrHeader({
   repoIndexedAt?: string | null;
   onIndexComplete?: () => void;
 }) {
-  const [isReindexing, setIsReindexing] = useState(false);
-  const busy = isReindexing || isScanning;
   if (!activePR) {
     return (
       <div className="h-64 flex flex-col items-center justify-center border border-white/10 border-dashed rounded-xl bg-slate-900/10 p-6 text-slate-500">
@@ -178,21 +174,21 @@ function PrHeader({
 
         <div className="flex gap-2">
           <button
-            disabled={busy || !repoIndexedAt}
+            disabled={isScanning || !repoIndexedAt}
             onClick={onTriggerScan}
             title={
               !repoIndexedAt
                 ? "Index the codebase first — reviews without an index produce only diff-only guesses."
-                : busy
-                  ? "Another operation in progress — wait for it to finish."
+                : isScanning
+                  ? "Review already in progress."
                   : "Run the agentic review loop on this PR"
             }
             className={`px-4 py-2 bg-gradient-to-r from-cyan-500 to-indigo-500 hover:from-cyan-400 hover:to-indigo-400 text-black text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all shadow-md select-none ${
-              busy ? "animate-pulse opacity-50" : ""
+              isScanning ? "animate-pulse opacity-50" : ""
             } ${!repoIndexedAt ? "opacity-40 cursor-not-allowed grayscale" : "cursor-pointer"}`}
           >
             <Zap size={14} className="fill-black" />
-            <span>{isScanning ? "AI Pipeline Working..." : !repoIndexedAt ? "Index Required" : busy ? "Reindexing..." : "Trigger AI Review Scan"}</span>
+            <span>{isScanning ? "AI Pipeline Working..." : !repoIndexedAt ? "Index Required" : "Trigger AI Review Scan"}</span>
           </button>
           {hasFindings && (
             <button
@@ -202,43 +198,6 @@ function PrHeader({
             >
               <Download size={13} />
               <span>Export MD Card</span>
-            </button>
-          )}
-          {repoIndexedAt && (
-            <button
-              onClick={async () => {
-                if (busy || !repoId) return;
-                setIsReindexing(true);
-                try {
-                  const res = await fetch(`/api/repos/${repoId}/reindex`, { method: "POST" });
-                  if (!res.ok) {
-                    const data = await res.json().catch(() => ({}));
-                    throw new Error(data?.message || `Reindex failed (${res.status})`);
-                  }
-                  const deadline = Date.now() + 15 * 60 * 1000;
-                  while (Date.now() < deadline) {
-                    await new Promise((r) => setTimeout(r, 5000));
-                    const poll = await fetch(`/api/repos/${repoId}`);
-                    if (poll.ok) {
-                      const repo = await poll.json();
-                      if (repo?.indexedAt) {
-                        onIndexComplete?.();
-                        return;
-                      }
-                    }
-                  }
-                } catch (err: any) {
-                  console.error("Reindex failed:", err);
-                } finally {
-                  setIsReindexing(false);
-                }
-              }}
-              disabled={busy}
-              className="px-3 py-2 bg-amber-500/10 border border-amber-500/25 text-amber-300 hover:bg-amber-500/20 text-xs font-mono font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-wait"
-              title={busy ? "Another operation in progress — wait for it to finish." : "Purge all indexed data and re-index from scratch"}
-            >
-              <Database size={13} className={isReindexing ? "animate-pulse" : ""} />
-              <span>{isReindexing ? "Reindexing…" : "Reindex"}</span>
             </button>
           )}
         </div>
