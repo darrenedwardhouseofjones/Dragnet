@@ -60,9 +60,12 @@ Mark each `- [ ]` as `- [x]` when complete. Per user convention: update this fil
 
 ## Phase 6 — Legacy command handler: route prcheckstatus
 
-- [ ] Add `cmdName.endsWith("prcheckstatus") || cmdName.endsWith("status")` branch in `handleLegacyCommand` before Unknown fallthrough.
-- [ ] Reuse `resolvePr`, `isReviewActive`, persisted findings/rating lookups.
-- [ ] Return shape: `{ status, type: "status", productionScore, findingsCount, findings }`.
+- [x] Add `cmdName.endsWith("prcheckstatus") || cmdName.endsWith("status")` branch in `handleLegacyCommand` before Unknown fallthrough.
+- [x] Reuse `resolvePr`, `isReviewActive`, persisted findings/rating lookups.
+- [x] Return shape: `{ status, type: "status", productionScore, findingsCount, findings }`.
+- [x] Re-fetches PR after `isReviewActive` check so async rating updates are reflected.
+- [x] `npm run lint` clean.
+- [x] `npm test` — all 33 tests pass.
 - [ ] Manual: `curl -X POST localhost:3300/api/mcp/command -d '{"command":"prcheckstatus","repoId":"<id>","branch":"<branch>"}'` returns JSON, not "Unknown command".
 
 ## Phase 7 — UI: 4 pickers in LLM Settings

@@ -315,6 +315,28 @@ async function handleLegacyCommand(body: any, defRepo: string | null) {
         comments: findings.map((f: any) => `[${f.category} | ${f.severity}] ${f.filename}:${f.line} - ${f.explanation}`),
       });
     }
+    if (cmdName.endsWith("prcheckstatus") || cmdName.endsWith("status")) {
+      const pr = await resolvePr({ ...body, repoId: body.repoId || defRepo }, argVal);
+      if (!pr) return NextResponse.json({ status: "Error", message: "> No PR found on this repository." });
+      if (isReviewActive(pr.id)) {
+        return NextResponse.json({
+          status: "Pending",
+          message: `> Review still in progress for **${pr.sourceBranch}**...`,
+        });
+      }
+      // Re-fetch so we pick up any rating update from the async runPrScan.
+      const freshPr = await prisma.pullRequest.findUnique({ where: { id: pr.id } });
+      const findings = await prisma.reviewFinding.findMany({ where: { prId: pr.id } });
+      return NextResponse.json({
+        status: freshPr?.rating != null ? "Success" : "Pending",
+        type: "status",
+        productionScore: freshPr?.rating != null ? `${freshPr.rating}/10` : "Not scanned yet",
+        findingsCount: findings.length,
+        findings: findings.map((f: any) =>
+          `[${f.category} | ${f.severity}] ${f.filename}:${f.line} - ${f.explanation}`,
+        ),
+      });
+    }
     if (cmdName.endsWith("prlist") || cmdName.endsWith("list")) {
       const rid = body.repoId || defRepo;
       if (!rid) return NextResponse.json({ status: "Error", message: "Pass { repoId }." }, { status: 400 });
