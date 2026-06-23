@@ -37,12 +37,12 @@ Mark each `- [ ]` as `- [x]` when complete. Per user convention: update this fil
 
 ## Phase 5 — Presets .bak spam
 
-- [ ] Add module-level `warnedAboutBakFallback` boolean in `src/lib/llmPresets.ts`.
-- [ ] Wrap the existing `.bak fallback` warn so it fires once per process.
-- [ ] `npm run lint` clean.
+- [x] Add module-level `warnedAboutBakFallback` boolean in `src/lib/llmPresets.ts`.
+- [x] Wrap the existing `.bak fallback` warn so it fires once per process.
+- [x] `npm run lint` clean.
 
 ## Final verification
 
-- [ ] `npm run lint` clean.
-- [ ] `npm test` — 33 tests still pass.
-- [ ] Commit each phase individually per the user's `git add .` convention.
+- [x] `npm run lint` clean.
+- [x] `npm test` — 33 tests still pass.
+- [x] Commit each phase individually per the user's `git add .` convention.

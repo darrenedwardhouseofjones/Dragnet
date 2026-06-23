@@ -126,6 +126,15 @@ function parseFile(path: string): PresetsFile | null {
 }
 
 /**
+ * One-shot guard for the `.bak` fallback warning. The indexing/polling
+ * services can call readPresets() dozens of times per session — without
+ * this guard, a single corrupt main file spams the dev log. The warning
+ * fires once per process so the operator sees that something's wrong,
+ * then we fall back silently until restart.
+ */
+let warnedAboutBakFallback = false;
+
+/**
  * Reads the presets file synchronously (file is ~2KB, sub-ms).
  * Falls back to `.bak` if the main file is missing or corrupt.
  * Returns an empty state only if neither exists.
@@ -144,7 +153,10 @@ export function readPresets(): PresetsFile {
 
   const bak = existsSync(PRESETS_BAK) ? parseFile(PRESETS_BAK) : null;
   if (bak) {
-    console.warn("[llmPresets] main file unreadable, falling back to .bak");
+    if (!warnedAboutBakFallback) {
+      console.warn("[llmPresets] main file unreadable, falling back to .bak. This warning fires once per process; fix the main file and restart to clear.");
+      warnedAboutBakFallback = true;
+    }
     maybeMigrateLegacyFields(bak);
     return bak;
   }
