@@ -54,10 +54,10 @@ Mark each task `- [x]` when complete. Add follow-up tasks under "Discovered duri
 
 ## Phase 8 — Deployment topology detection (localhost vs public URL)
 
-- [ ] **8.1** New `src/lib/publicUrl.ts` — `getPublicUrl(): { url: string; isLocal: boolean }`. Reads `GREPLOOP_PUBLIC_URL` (default `http://localhost:3000`). Sets `isLocal = true` when URL host is `localhost`, `127.0.0.1`, `0.0.0.0`, or `::1`. Empty env → `{ url: "http://localhost:3000", isLocal: true }`.
-- [ ] **8.2** New API endpoint `GET /api/config/public-url` returns `{ url, isLocal }` so the client doesn't need direct env access.
-- [ ] **8.3** Modify `WebhookPrompt.tsx` to fetch `/api/config/public-url` on mount. When `isLocal=true`: show Cloudflare Tunnel setup steps (the `cloudflared tunnel --url http://localhost:3000` command, "set `GREPLOOP_PUBLIC_URL` to the tunnel URL" instruction) above the auto/manual webhook buttons. When `isLocal=false`: skip tunnel steps, show webhook buttons directly.
-- [ ] **Verify:** On localhost (no tunnel env): WebhookPrompt shows tunnel steps. After `GREPLOOP_PUBLIC_URL=https://xyz.trycloudflare.com` set + restart: tunnel steps hidden, webhook buttons only. Typecheck clean. All tests pass.
+- [x] **8.1** New `src/lib/publicUrl.ts` — `getPublicUrl(): { url: string; isLocal: boolean }`. Reads `GREPLOOP_PUBLIC_URL` (default `http://localhost:3000`). Sets `isLocal = true` when URL host is `localhost`, `127.0.0.1`, `0.0.0.0`, or `::1`. Empty env → `{ url: "http://localhost:3000", isLocal: true }`.
+- [x] **8.2** New API endpoint `GET /api/config/public-url` returns `{ url, isLocal }` so the client doesn't need direct env access.
+- [x] **8.3** Modified `WebhookPrompt.tsx` to fetch `/api/config/public-url` on mount. When `isLocal=true`: shows amber-bordered Cloudflare Tunnel setup panel (cloudflared command with copy button, GREPLOOP_PUBLIC_URL instruction) above the auto/manual webhook buttons. When `isLocal=false`: shows green "Public URL configured" confirmation, skips tunnel steps entirely.
+- [x] **Verify:** Typecheck clean. All 33 tests pass. Tunnel panel renders on localhost, hidden when GREPLOOP_PUBLIC_URL points at a public host.
 
 ## Discovered during work
 
