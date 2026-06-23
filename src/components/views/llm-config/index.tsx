@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import { AlertCircle, ChevronDown, ChevronRight, Cpu, RefreshCw, Save, Sparkles } from "lucide-react";
 import type { LlmPresetsState } from "../../../lib/types";
 import RolePanel from "./RolePanel";
-import McpKeysPanel from "./McpKeysPanel";
+import ApiKeysPanel from "./ApiKeysPanel";
 import {
   LLM_PRESETS_CHANGED_EVENT,
   fromViewState,
@@ -16,7 +16,7 @@ import {
   type WorkingPreset,
 } from "./shared";
 
-type Tab = "chat" | "embedding" | "mcp";
+type Tab = "chat" | "embedding" | "api";
 
 /**
  * Two-tab LLM config: Chat (PR reviewer) and Embedding (semantic search).
@@ -228,11 +228,11 @@ export default function LlmConfigTabs() {
         <div className="flex items-center gap-1 mb-4 border-b border-white/5">
           <TabButton active={tab === "chat"} onClick={() => setTab("chat")} accent="cyan" label="PR Reviewer (Chat)" />
           <TabButton active={tab === "embedding"} onClick={() => setTab("embedding")} accent="indigo" label="Semantic Search (Embedding)" />
-          <TabButton active={tab === "mcp"} onClick={() => setTab("mcp")} accent="amber" label="MCP API Keys" />
+          <TabButton active={tab === "api"} onClick={() => setTab("api")} accent="amber" label="API Keys" />
         </div>
 
-        {tab === "mcp" ? (
-          <McpKeysPanel />
+        {tab === "api" ? (
+          <ApiKeysPanel />
         ) : (
           <>
             <RolePanel

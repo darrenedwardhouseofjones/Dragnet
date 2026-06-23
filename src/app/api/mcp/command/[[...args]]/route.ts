@@ -3,7 +3,7 @@ import { prisma } from "@/src/lib/prisma";
 import { findPrByIdOrNumber, findPrByBranch } from "@/src/lib/findPr";
 import { refreshPrFiles } from "@/src/lib/getRealLocalPrs";
 import { runPrScan } from "@/reviewService";
-import { authenticateMcpRequest } from "@/src/lib/mcpAuth";
+import { authenticateApiRequest } from "@/src/lib/apiAuth";
 
 function defaultRepoId(url: string, args?: string[]): string | null {
   if (args && args.length > 0) return args[0];
@@ -122,17 +122,17 @@ async function handlePrCheck(args: any): Promise<string> {
       await refreshPrFiles(repo.path, repo.baseBranch, pr.sourceBranch, pr.id);
     }
   } catch (e) {
-    console.warn("[mcp] prfile refresh failed, using cached:", e);
+    console.warn("[api] prfile refresh failed, using cached:", e);
   }
 
   activeReviews.add(pr.id);
   runPrScan(pr.id).then((sr) => {
     activeReviews.delete(pr.id);
     prisma.pullRequest.updateMany({ where: { id: pr.id }, data: { rating: sr.rating } }).catch(() => {});
-    console.log(`[mcp] review complete for ${pr.sourceBranch}: ${sr.rating}/5`);
+    console.log(`[api] review complete for ${pr.sourceBranch}: ${sr.rating}/5`);
   }).catch((err) => {
     activeReviews.delete(pr.id);
-    console.error(`[mcp] review failed for ${pr.sourceBranch}:`, err);
+    console.error(`[api] review failed for ${pr.sourceBranch}:`, err);
   });
 
   return `> **Review started** for PR \`${pr.sourceBranch}\`.\n>\n> This runs in the background. Check results with \`prcheckstatus ${pr.sourceBranch}\` or view in the GrepLoop dashboard.\n>\n> Alternatively, use \`prcomments ${pr.sourceBranch}\` for the latest persisted findings.`;
@@ -182,11 +182,11 @@ const toolHandlers: Record<string, Handler> = {
 };
 
 export function GET() {
-  return NextResponse.json({ ok: true, message: "bughunter MCP server — use POST for JSON-RPC" });
+  return NextResponse.json({ ok: true, message: "GrepLoop API — use POST for JSON-RPC" });
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ args?: string[] }> }) {
-  const auth = await authenticateMcpRequest(req);
+  const auth = await authenticateApiRequest(req);
   if (!auth.ok) {
     return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32001, message: auth.error } }, { status: 401 });
   }
@@ -288,7 +288,7 @@ async function handleLegacyCommand(body: any, defRepo: string | null) {
     }
     return NextResponse.json({ status: "Error", message: `Unknown command: ${cmdName}` }, { status: 400 });
   } catch (err: any) {
-    console.error("[MCP error]:", err);
+    console.error("[api error]:", err);
     return NextResponse.json({ status: "Error", message: err.message }, { status: 500 });
   }
 }

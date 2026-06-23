@@ -40,9 +40,9 @@ Dispatch on `$ARGUMENTS`:
 
 All API endpoints require an API key in the `Authorization` header:
 ```
-Authorization: Bearer gl_mcp_<your_key>
+Authorization: Bearer gl_<your_key>
 ```
-Generate a key from the GrepLoop UI → Settings → MCP API Keys. If no key is configured, tell the user to create one. The CLI (`scripts/greploop.mjs`) and pre-push hook read it from `GREPLOOP_API_KEY`.
+Generate a key from the GrepLoop UI → Settings → API Keys. If no key is configured, tell the user to create one. The CLI (`scripts/greploop.mjs`) and pre-push hook read it from `GREPLOOP_API_KEY`. Legacy `gl_mcp_` keys still work.
 
 ## Rating scale
 

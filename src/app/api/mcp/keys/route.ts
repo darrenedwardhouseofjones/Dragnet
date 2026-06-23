@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
-import { generateApiKey } from "@/src/lib/mcpAuth";
+import { generateApiKey } from "@/src/lib/apiAuth";
 
 export async function GET() {
   const keys = await prisma.mcpApiKey.findMany({

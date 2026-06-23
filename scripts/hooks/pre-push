@@ -9,7 +9,7 @@
 #
 # Configuration (set these in your shell/profile or .env):
 #   GREPLOOP_URL   - default: http://localhost:3000
-#   GREPLOOP_API_KEY - your MCP API key from the GrepLoop UI
+#   GREPLOOP_API_KEY - your API key from the GrepLoop UI
 
 GREPLOOP_URL="${GREPLOOP_URL:-http://localhost:3000}"
 GREPLOOP_API_KEY="${GREPLOOP_API_KEY:-}"
@@ -20,8 +20,8 @@ if [ -z "$REPO_PATH" ]; then
 fi
 
 if [ -z "$GREPLOOP_API_KEY" ]; then
-  echo "⚠ GrepLoop: GREPLOOP_API_KEY not set. Generate a key from GrepLoop UI → MCP API Keys."
-  echo "  Then: export GREPLOOP_API_KEY='gl_mcp_...'"
+  echo "⚠ GrepLoop: GREPLOOP_API_KEY not set. Generate a key from GrepLoop UI → LLM Settings → API Keys."
+  echo "  Then: export GREPLOOP_API_KEY='gl_...'"
   echo "  Push blocked. Set the key or use --no-verify to bypass."
   exit 1
 fi

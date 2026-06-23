@@ -9,7 +9,7 @@ interface RepoView {
   name: string;
 }
 
-interface McpKeyView {
+interface ApiKeyView {
   id: string;
   name: string;
   prefix: string;
@@ -138,8 +138,8 @@ function InstallModal({ tool, origin, apiKey, repoId, onClose }: { tool: ToolId;
   );
 }
 
-export default function McpKeysPanel() {
-  const [keys, setKeys] = useState<McpKeyView[]>([]);
+export default function ApiKeysPanel() {
+  const [keys, setKeys] = useState<ApiKeyView[]>([]);
   const [repos, setRepos] = useState<RepoView[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [newKeyName, setNewKeyName] = useState("");
@@ -188,7 +188,7 @@ export default function McpKeysPanel() {
       const res = await fetch("/api/mcp/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newKeyName || "BugHunter API Key" }),
+        body: JSON.stringify({ name: newKeyName || "GrepLoop API Key" }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -215,14 +215,14 @@ export default function McpKeysPanel() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64 text-slate-500 font-mono text-xs">
-        Loading MCP API keys...
+        Loading API keys...
       </div>
     );
   }
 
   return (
     <motion.div
-      key="mcp-keys-frame"
+      key="api-keys-frame"
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
@@ -238,10 +238,10 @@ export default function McpKeysPanel() {
           </div>
           <div>
             <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-              MCP API Keys
+              API Keys
             </h3>
             <p className="text-xs text-slate-400">
-              API keys for remote MCP clients (Claude Code, Cursor, etc.). Set the <code className="text-cyan-400">Authorization: Bearer</code> header when calling GrepLoop's MCP endpoints.
+              API keys for remote clients (Claude Code, Cursor, etc.). Set the <code className="text-cyan-400">Authorization: Bearer</code> header when calling GrepLoop's endpoints.
             </p>
           </div>
         </div>
@@ -375,7 +375,7 @@ export default function McpKeysPanel() {
                     const res = await fetch("/api/mcp/keys", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ name: "BugHunter API Key" }),
+                      body: JSON.stringify({ name: "GrepLoop API Key" }),
                     });
                     const data = await res.json();
                     if (res.ok) setNewKeyValue(data.key);
