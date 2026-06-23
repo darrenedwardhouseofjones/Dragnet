@@ -1,7 +1,9 @@
 import OpenAI from "openai";
 import {
-  getActiveChatPreset,
-  getActiveEmbeddingPreset,
+  getPrimaryChatPreset,
+  getPrimaryEmbeddingPreset,
+  getFallbackChatPreset,
+  getFallbackEmbeddingPreset,
   apiKeyHash,
   migrateFromEnvLocalIfNeeded,
   type Preset,
@@ -16,12 +18,18 @@ import {
  * `${presetId}|${endpoint}|${sha256(apiKey)}`, and memoizes on
  * globalThis so dev hot-reload doesn't leak sockets.
  *
+ * Multi-provider fallback: `getChatChain()` / `getEmbeddingChain()` return
+ * an ordered list of providers (primary first, fallback second). Callers
+ * iterate and try each in turn. The single-client getters
+ * (`getChatClient`/`getChatModel`/etc) remain as shortcuts for the
+ * primary slot.
+ *
  * Not instantiated at module load — that would break `next build` on
  * fresh clones with no presets file. Mirrors the prisma.ts pattern.
  *
  * Returns null if no preset is active for the requested role. Callers
- * handle gracefully (review falls through to procedural findings,
- * embedding service returns empty vectors).
+ * handle gracefully (review returns empty findings + actionable
+ * systemWarn, embedding service returns empty vectors).
  */
 
 interface CachedClient {
@@ -32,6 +40,8 @@ interface CachedClient {
 const globalForLlm = globalThis as unknown & {
   __llmChatClient?: CachedClient | null;
   __llmEmbeddingClient?: CachedClient | null;
+  /** Per-preset cache used by the chain getters. Keyed by cacheKey. */
+  __llmClientCache?: Map<string, OpenAI>;
 };
 
 function buildClient(preset: Preset): OpenAI {
@@ -46,6 +56,23 @@ function cacheKeyFor(preset: Preset): string {
 }
 
 /**
+ * Returns a cached OpenAI client for the given preset, building one if
+ * needed. Uses a Map on globalThis so dev hot-reload doesn't leak sockets
+ * and so the chain getters can cache multiple providers simultaneously.
+ */
+function clientFor(preset: Preset): OpenAI {
+  const key = cacheKeyFor(preset);
+  if (!globalForLlm.__llmClientCache) {
+    globalForLlm.__llmClientCache = new Map();
+  }
+  const cached = globalForLlm.__llmClientCache.get(key);
+  if (cached) return cached;
+  const client = buildClient(preset);
+  globalForLlm.__llmClientCache.set(key, client);
+  return client;
+}
+
+/**
  * Returns the OpenAI client for the currently-active chat preset.
  * Reads the presets file fresh on every call (~2KB, sub-ms) so users
  * don't need to restart the dev server after editing config.
@@ -55,42 +82,90 @@ function cacheKeyFor(preset: Preset): string {
  */
 export function getChatClient(): OpenAI | null {
   migrateFromEnvLocalIfNeeded();
-  const preset = getActiveChatPreset();
+  const preset = getPrimaryChatPreset();
   if (!preset || !preset.chatModel) return null;
-
-  const key = cacheKeyFor(preset);
-  if (globalForLlm.__llmChatClient && globalForLlm.__llmChatClient.cacheKey === key) {
-    return globalForLlm.__llmChatClient.client;
-  }
-
-  const client = buildClient(preset);
-  globalForLlm.__llmChatClient = { client, cacheKey: key };
-  return client;
+  return clientFor(preset);
 }
 
 export function getEmbeddingClient(): OpenAI | null {
   migrateFromEnvLocalIfNeeded();
-  const preset = getActiveEmbeddingPreset();
+  const preset = getPrimaryEmbeddingPreset();
   if (!preset || !preset.embeddingModel) return null;
-
-  const key = cacheKeyFor(preset);
-  if (globalForLlm.__llmEmbeddingClient && globalForLlm.__llmEmbeddingClient.cacheKey === key) {
-    return globalForLlm.__llmEmbeddingClient.client;
-  }
-
-  const client = buildClient(preset);
-  globalForLlm.__llmEmbeddingClient = { client, cacheKey: key };
-  return client;
+  return clientFor(preset);
 }
 
 export function getChatModel(): string | null {
   migrateFromEnvLocalIfNeeded();
-  const preset = getActiveChatPreset();
+  const preset = getPrimaryChatPreset();
   return preset?.chatModel || null;
 }
 
 export function getEmbeddingModel(): string | null {
   migrateFromEnvLocalIfNeeded();
-  const preset = getActiveEmbeddingPreset();
+  const preset = getPrimaryEmbeddingPreset();
   return preset?.embeddingModel || null;
+}
+
+export interface ChainEntry {
+  client: OpenAI;
+  model: string;
+  name: string;
+}
+
+/**
+ * Ordered list of chat providers to try. Primary first, fallback second
+ * (skipped if unset or identical to primary). Empty array if no chat
+ * provider is configured at all.
+ *
+ * Callers iterate and try each entry — catch per-provider errors and
+ * continue to the next. After exhaustion, surface an actionable error
+ * (don't fabricate templated output).
+ */
+export function getChatChain(): ChainEntry[] {
+  migrateFromEnvLocalIfNeeded();
+  const chain: ChainEntry[] = [];
+  const seen = new Set<string>();
+
+  const primary = getPrimaryChatPreset();
+  if (primary && primary.chatModel) {
+    chain.push({ client: clientFor(primary), model: primary.chatModel, name: primary.name });
+    seen.add(primary.id);
+  }
+
+  const fallback = getFallbackChatPreset();
+  if (fallback && fallback.chatModel && !seen.has(fallback.id)) {
+    chain.push({ client: clientFor(fallback), model: fallback.chatModel, name: fallback.name });
+  }
+
+  return chain;
+}
+
+/**
+ * Ordered list of embedding providers. Same shape/semantics as getChatChain.
+ */
+export function getEmbeddingChain(): ChainEntry[] {
+  migrateFromEnvLocalIfNeeded();
+  const chain: ChainEntry[] = [];
+  const seen = new Set<string>();
+
+  const primary = getPrimaryEmbeddingPreset();
+  if (primary && primary.embeddingModel) {
+    chain.push({
+      client: clientFor(primary),
+      model: primary.embeddingModel,
+      name: primary.name,
+    });
+    seen.add(primary.id);
+  }
+
+  const fallback = getFallbackEmbeddingPreset();
+  if (fallback && fallback.embeddingModel && !seen.has(fallback.id)) {
+    chain.push({
+      client: clientFor(fallback),
+      model: fallback.embeddingModel,
+      name: fallback.name,
+    });
+  }
+
+  return chain;
 }

@@ -16,10 +16,12 @@ Mark each `- [ ]` as `- [x]` when complete. Per user convention: update this fil
 
 ## Phase 2 — Chat + embedding client chains
 
-- [ ] Add `getChatChain(): Array<{client: OpenAI, model: string, name: string}>` in `src/lib/llmClient.ts`.
-- [ ] Mirror `getEmbeddingChain()`.
-- [ ] Both return primary first, fallback second (skip if fallback unset or equal to primary).
-- [ ] Keep existing `getChatClient`/`getChatModel`/`getEmbeddingClient`/`getEmbeddingModel` working as primary-only shortcuts.
+- [x] Add `getChatChain(): Array<{client: OpenAI, model: string, name: string}>` in `src/lib/llmClient.ts`.
+- [x] Mirror `getEmbeddingChain()`.
+- [x] Both return primary first, fallback second (skip if fallback unset or equal to primary).
+- [x] Keep existing `getChatClient`/`getChatModel`/`getEmbeddingClient`/`getEmbeddingModel` working as primary-only shortcuts.
+- [x] Per-preset client cache via `__llmClientCache` Map on globalThis (supports multiple simultaneous providers).
+- [x] `npm run lint` clean.
 
 ## Phase 3 — Review service: iterate chain, honest failure
 
