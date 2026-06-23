@@ -294,6 +294,13 @@ ${diffPayload}`;
             tools,
             tool_choice: "auto",
             temperature: 0.2,
+            // OpenRouter pre-flight checks worst-case cost = max_tokens ×
+            // output-token price. Leaving this unset lets the model default
+            // to its full output cap (e.g. 65536 for DeepSeek V4 Pro),
+            // which can exceed the user's remaining credit budget even
+            // though actual usage is much smaller. 16384 is comfortable
+            // headroom for a structured findings JSON with evidence chains.
+            max_tokens: 16384,
           });
 
           const msg = response.choices?.[0]?.message;
