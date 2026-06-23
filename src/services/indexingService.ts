@@ -371,7 +371,7 @@ export class IndexingService {
   }
 
   private static async runIndex(repoId: string, repoPath: string): Promise<{ fileParsedCount: number; symbolsExtractedCount: number; edgesResolvedCount: number }> {
-    const resolvedPath = path.isAbsolute(repoPath) ? repoPath : path.resolve(process.cwd(), repoPath);
+    const resolvedPath = path.isAbsolute(repoPath) ? repoPath : path.resolve(/* turbopackIgnore: true */ process.cwd(), repoPath);
     if (!fs.existsSync(resolvedPath)) {
       throw new Error(`Repository local path "${repoPath}" could not be located.`);
     }
@@ -593,7 +593,7 @@ export class IndexingService {
 
         console.log(`[Indexing] Found ${symbolsToEnrich.length} symbols to enrich for Phase B...`);
 
-        const resolvedPath = path.isAbsolute(repoPath) ? repoPath : path.resolve(process.cwd(), repoPath);
+        const resolvedPath = path.isAbsolute(repoPath) ? repoPath : path.resolve(/* turbopackIgnore: true */ process.cwd(), repoPath);
 
         for (const sym of symbolsToEnrich) {
           const absolutePath = path.join(resolvedPath, sym.filePath);

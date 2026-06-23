@@ -3,7 +3,11 @@ import { writeFileSync, unlinkSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-const CLONE_DIR = process.env.REPOS_DIR || path.join(process.cwd(), ".repos");
+const REPOS_SUBDIR = ".repos";
+
+function cloneDir(): string {
+  return process.env.REPOS_DIR || path.join(process.cwd(), REPOS_SUBDIR);
+}
 
 export interface CloneOpts {
   repoId: string;
@@ -20,8 +24,9 @@ export interface FetchOpts {
 }
 
 export function cloneRepo(opts: CloneOpts): string {
-  const dest = path.join(CLONE_DIR, opts.repoId);
-  mkdirSync(CLONE_DIR, { recursive: true });
+  const root = cloneDir();
+  const dest = path.join(root, opts.repoId);
+  mkdirSync(root, { recursive: true });
 
   const url = interpolatePat(opts.cloneUrl, opts.pat);
   const { env, cleanup } = opts.deployKey

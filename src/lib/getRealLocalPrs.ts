@@ -71,7 +71,7 @@ interface RepoFile {
  */
 export async function getRealLocalPrs(repoPath: string, repoId: string) {
   try {
-    const resolvedPath = path.isAbsolute(repoPath) ? repoPath : path.resolve(process.cwd(), repoPath);
+    const resolvedPath = path.isAbsolute(repoPath) ? repoPath : path.resolve(/* turbopackIgnore: true */ process.cwd(), repoPath);
     if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isDirectory()) return null;
 
     try {

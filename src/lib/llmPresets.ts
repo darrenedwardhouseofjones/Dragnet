@@ -51,12 +51,12 @@ export interface PresetsFile {
   activeEmbeddingPresetId: string;
 }
 
-const PRESETS_DIR = join(process.cwd(), ".greploop");
+const PRESETS_DIR = join(/* turbopackIgnore: true */ process.cwd(), ".greploop");
 const PRESETS_PATH = join(PRESETS_DIR, "llm-presets.json");
 const PRESETS_TMP = join(PRESETS_DIR, "llm-presets.json.tmp");
 const PRESETS_BAK = join(PRESETS_DIR, "llm-presets.json.bak");
 
-const ENV_LOCAL_PATH = join(process.cwd(), ".env.local");
+const ENV_LOCAL_PATH = join(/* turbopackIgnore: true */ process.cwd(), ".env.local");
 
 let migrationDone = false;
 

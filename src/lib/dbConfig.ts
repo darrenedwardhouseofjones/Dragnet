@@ -30,7 +30,7 @@ export interface TestResult {
   error?: string;
 }
 
-const ENV_LOCAL_PATH = join(process.cwd(), ".env.local");
+const ENV_LOCAL_PATH = join(/* turbopackIgnore: true */ process.cwd(), ".env.local");
 
 export function isSupabaseHost(host: string): boolean {
   return host.toLowerCase().includes("supabase.com");

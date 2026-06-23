@@ -1,4 +1,5 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
+import { existsSync, chmodSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 export async function register() {
   const g = globalThis as typeof globalThis & { __greploopAuditDone?: boolean };
@@ -7,13 +8,10 @@ export async function register() {
 
   let root: string;
   try {
-    root = process.cwd();
+    root = /* turbopackIgnore: true */ process.cwd();
   } catch {
     return;
   }
-
-  const { existsSync, chmodSync, readdirSync, statSync } = require("fs");
-  const { join } = require("path");
 
   const files: string[] = [];
 
