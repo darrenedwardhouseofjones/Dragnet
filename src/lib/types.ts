@@ -18,6 +18,12 @@ export interface Repository {
    * /api/prs/[id]/scan route rejects with 409 INDEX_REQUIRED.
    */
   indexedAt?: string | null;
+  provider?: string | null;
+  cloneUrl?: string | null;
+  cloneUrlHttps?: string | null;
+  patCipher?: string | null;
+  deployKeyCipher?: string | null;
+  localPath?: string | null;
 }
 
 export interface PullRequest {

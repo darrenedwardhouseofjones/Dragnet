@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
+import { encryptSecret, hasMasterKey } from "@/src/lib/crypto";
+import { enqueue } from "@/src/services/remoteFetchWorker";
+import { getProviderFromUrl } from "@/src/lib/webhookSetup";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -29,7 +32,12 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       triggerMode,
       quietPeriodSeconds,
       branchPattern,
-      path: repoPath
+      path: repoPath,
+      mode,
+      cloneUrl,
+      cloneUrlHttps,
+      deployKey,
+      pat,
     } = body;
 
     const current = await prisma.repository.findUnique({ where: { id } });
@@ -37,30 +45,107 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: "Repository record not found" }, { status: 404 });
     }
 
-    await prisma.repository.update({
-      where: { id },
-      data: {
-        activeBranch: activeBranch !== undefined ? activeBranch : current.activeBranch,
-        status: status !== undefined ? status : current.status,
-        lastCommitHash: lastCommitHash !== undefined ? lastCommitHash : current.lastCommitHash,
-        lastCommitMessage: lastCommitMessage !== undefined ? lastCommitMessage : current.lastCommitMessage,
-        lastActivityTime: new Date().toISOString(),
-        stabilizationTimer: stabilizationTimer !== undefined ? stabilizationTimer : current.stabilizationTimer,
-        reviewsCount: reviewsCount !== undefined ? reviewsCount : current.reviewsCount,
-        triggerMode: triggerMode !== undefined ? triggerMode : current.triggerMode,
-        quietPeriodSeconds: quietPeriodSeconds !== undefined ? quietPeriodSeconds : current.quietPeriodSeconds,
-        branchPattern: branchPattern !== undefined ? branchPattern : current.branchPattern
+    const updateData: Record<string, unknown> = {
+      lastActivityTime: new Date().toISOString(),
+    };
+
+    if (activeBranch !== undefined) updateData.activeBranch = activeBranch;
+    if (status !== undefined) updateData.status = status;
+    if (lastCommitHash !== undefined) updateData.lastCommitHash = lastCommitHash;
+    if (lastCommitMessage !== undefined) updateData.lastCommitMessage = lastCommitMessage;
+    if (stabilizationTimer !== undefined) updateData.stabilizationTimer = stabilizationTimer;
+    if (reviewsCount !== undefined) updateData.reviewsCount = reviewsCount;
+    if (triggerMode !== undefined) updateData.triggerMode = triggerMode;
+    if (quietPeriodSeconds !== undefined) updateData.quietPeriodSeconds = quietPeriodSeconds;
+    if (branchPattern !== undefined) updateData.branchPattern = branchPattern;
+
+    const modeChanged = typeof mode === "string" && mode !== current.provider;
+    const urlChanged =
+      (typeof cloneUrl === "string" && cloneUrl !== current.cloneUrl) ||
+      (typeof cloneUrlHttps === "string" && cloneUrlHttps !== (current.cloneUrlHttps || ""));
+    const pathChanged = typeof repoPath === "string" && repoPath !== current.path;
+
+    if (pathChanged) {
+      updateData.path = repoPath;
+    }
+
+    if (modeChanged) {
+      updateData.provider = mode;
+      if (mode === "local") {
+        updateData.cloneUrl = null;
+        updateData.cloneUrlHttps = null;
+        updateData.deployKeyCipher = null;
+        updateData.deployKeyIv = null;
+        updateData.deployKeyTag = null;
+        updateData.patCipher = null;
+        updateData.patIv = null;
+        updateData.patTag = null;
+      } else if (mode === "ssh") {
+        updateData.patCipher = null;
+        updateData.patIv = null;
+        updateData.patTag = null;
+      } else if (mode === "pat") {
+        updateData.deployKeyCipher = null;
+        updateData.deployKeyIv = null;
+        updateData.deployKeyTag = null;
       }
-    });
+    }
+
+    if (typeof cloneUrl === "string" && cloneUrl !== current.cloneUrl) {
+      updateData.cloneUrl = cloneUrl;
+    }
+    if (typeof cloneUrlHttps === "string" && cloneUrlHttps !== (current.cloneUrlHttps || "")) {
+      updateData.cloneUrlHttps = cloneUrlHttps || null;
+    }
+    if (cloneUrl || cloneUrlHttps) {
+      const newProvider = getProviderFromUrl(cloneUrl || current.cloneUrl || "", cloneUrlHttps || undefined);
+      if (newProvider && newProvider !== current.provider) {
+        updateData.provider = newProvider;
+      }
+    }
+
+    const writingSecret = Boolean(deployKey || pat);
+    if (writingSecret && !hasMasterKey()) {
+      return NextResponse.json(
+        { error: "GREPLOOP_MASTER_KEY is not set. Cannot encrypt secrets." },
+        { status: 500 },
+      );
+    }
+
+    if (typeof deployKey === "string" && deployKey.length > 0) {
+      const { cipher, iv, tag } = encryptSecret(deployKey);
+      updateData.deployKeyCipher = cipher;
+      updateData.deployKeyIv = iv;
+      updateData.deployKeyTag = tag;
+    }
+    if (typeof pat === "string" && pat.length > 0) {
+      const { cipher, iv, tag } = encryptSecret(pat);
+      updateData.patCipher = cipher;
+      updateData.patIv = iv;
+      updateData.patTag = tag;
+    }
+
+    const targetProvider = (updateData.provider as string) || current.provider || "local";
+    const remoteTouched =
+      targetProvider !== "local" && (modeChanged || urlChanged || writingSecret);
+
+    await prisma.repository.update({ where: { id }, data: updateData });
 
     const targetStatus = status !== undefined ? status : current.status;
     const targetBranch = activeBranch !== undefined ? activeBranch : current.activeBranch;
-    if (targetStatus === 'stabilizing' && targetBranch) {
+    if (targetStatus === "stabilizing" && targetBranch) {
       const prId = `real-pr-${id}-${targetBranch.replace(/\//g, "-")}`;
-      await prisma.pullRequest.updateMany({ where: { id: prId }, data: { status: 'In Progress' } });
+      await prisma.pullRequest.updateMany({ where: { id: prId }, data: { status: "In Progress" } });
     }
 
-    return NextResponse.json({ success: true });
+    if (remoteTouched) {
+      enqueue(id).catch((err) => {
+        console.error(`[repos PUT] re-fetch failed for ${id}:`, err);
+        prisma.repository.update({ where: { id }, data: { status: "error" } }).catch(() => {});
+      });
+    }
+
+    return NextResponse.json({ success: true, refetched: remoteTouched });
   } catch (err: any) {
     console.error("Error updating repository:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });

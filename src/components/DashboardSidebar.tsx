@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, Folder, GitBranch, Plus, Sparkles } from "lucide-react";
+import { Activity, Folder, GitBranch, Plus, Settings, Sparkles } from "lucide-react";
 import type { ActivityLog, LlmPresetsState, PullRequest, Repository } from "../lib/types";
 import { getStatusBadgeStyle } from "../lib/types";
 
@@ -11,6 +11,7 @@ interface Props {
   repos: Repository[];
   selectedRepoId: string;
   onSelectRepo: (repoId: string) => void;
+  onEditRepo: (repo: Repository) => void;
   prs: PullRequest[];
   selectedPrId: string;
   onSelectPr: (prId: string) => void;
@@ -24,6 +25,7 @@ export default function DashboardSidebar({
   repos,
   selectedRepoId,
   onSelectRepo,
+  onEditRepo,
   prs,
   selectedPrId,
   onSelectPr,
@@ -72,6 +74,7 @@ export default function DashboardSidebar({
         repos={repos}
         selectedRepoId={selectedRepoId}
         onSelectRepo={onSelectRepo}
+        onEditRepo={onEditRepo}
         prs={prs}
         selectedPrId={selectedPrId}
         onSelectPr={onSelectPr}
@@ -89,6 +92,7 @@ function ProjectsPane({
   repos,
   selectedRepoId,
   onSelectRepo,
+  onEditRepo,
   prs,
   selectedPrId,
   onSelectPr,
@@ -97,6 +101,7 @@ function ProjectsPane({
   repos: Repository[];
   selectedRepoId: string;
   onSelectRepo: (repoId: string) => void;
+  onEditRepo: (repo: Repository) => void;
   prs: PullRequest[];
   selectedPrId: string;
   onSelectPr: (prId: string) => void;
@@ -134,6 +139,7 @@ function ProjectsPane({
                   repo={repo}
                   isRepoSelected={isRepoSelected}
                   onSelect={() => onSelectRepo(repo.id)}
+                  onEdit={() => onEditRepo(repo)}
                 />
                 {isRepoSelected && (
                   <PrList
@@ -155,15 +161,25 @@ function RepoRow({
   repo,
   isRepoSelected,
   onSelect,
+  onEdit,
 }: {
   repo: Repository;
   isRepoSelected: boolean;
   onSelect: () => void;
+  onEdit: () => void;
 }) {
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
-      className={`w-full text-left px-3 py-2 rounded-lg transition-all border ${
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      className={`relative w-full text-left px-3 py-2 rounded-lg transition-all border cursor-pointer ${
         isRepoSelected
           ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-400 shadow-[inset_0_1px_5px_rgba(6,182,212,0.05)]"
           : "border-transparent hover:bg-white/5 text-slate-400 hover:text-white"
@@ -187,10 +203,23 @@ function RepoRow({
           >
             {repo.prCount || 0}
           </span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+            title="Edit project"
+            className="text-slate-500 hover:text-cyan-400 transition-all cursor-pointer"
+          >
+            <Settings size={12} />
+          </button>
         </div>
       </div>
-      <div className="text-[9px] font-mono text-slate-500 truncate mt-0.5 pl-5">{repo.path}</div>
-    </button>
+      <div className="text-[9px] font-mono text-slate-500 truncate mt-0.5 pl-5">
+        {repo.path || repo.cloneUrl || repo.id}
+      </div>
+    </div>
   );
 }
 

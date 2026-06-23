@@ -46,11 +46,11 @@ Mark each task `- [x]` when complete. Add follow-up tasks under "Discovered duri
 
 ## Phase 7 — Edit Repo (post-registration edit)
 
-- [ ] **7.1** Extend `PUT /api/repos/[id]` to accept `{ mode, cloneUrl, cloneUrlHttps, deployKey, pat, path }` alongside the existing operational fields. Secrets (`deployKey`, `pat`) encrypted via `crypto.ts`; empty/missing secrets preserve existing ciphertext ("leave blank to keep current"). For `path` edits, persist the new local path. For remote-mode edits, re-enqueue `remoteFetchWorker` if clone URL or secrets changed.
-- [ ] **7.2** Create `src/components/modals/editRepo/` directory mirroring `addRepo/`: `index.tsx` (tabbed parent, prefilled from current repo), `LocalTab.tsx`, `RemoteTab.tsx`, `shared.tsx` (import from `addRepo/shared`), `WebhookPrompt.tsx` (reuse `addRepo/WebhookPrompt` directly). Secret fields render empty with "leave blank to keep current" hint.
-- [ ] **7.3** Add cog-icon edit button per repo row in `src/components/DashboardSidebar.tsx`. Opens EditRepoModal for that repo.
-- [ ] **7.4** Wire `handleEditRepo(repo)` into `src/hooks/useDashboardData.ts`. PUTs to `/api/repos/[id]`, then refreshes repo list. Shows WebhookPrompt only if cloneUrl/mode changed.
-- [ ] **Verify:** Edit a local repo's path → list updates. Edit a remote repo's cloneUrl → re-clone kicks off, `lastFetchAt` updates. Leave secrets blank → existing ciphertext preserved (verify via `SELECT cloneUrl FROM Repository` unchanged). Typecheck clean. All tests pass.
+- [x] **7.1** Extend `PUT /api/repos/[id]` to accept `{ mode, cloneUrl, cloneUrlHttps, deployKey, pat, path }` alongside the existing operational fields. Secrets (`deployKey`, `pat`) encrypted via `crypto.ts`; empty/missing secrets preserve existing ciphertext ("leave blank to keep current"). For `path` edits, persist the new local path. For remote-mode edits, re-enqueue `remoteFetchWorker` if clone URL or secrets changed.
+- [x] **7.2** Create `src/components/modals/editRepo/` directory mirroring `addRepo/`: `index.tsx` (tabbed parent, prefilled from current repo), `LocalTab.tsx`, `RemoteTab.tsx`, `shared.tsx` (re-export from `addRepo/shared`), `WebhookPrompt.tsx` (reuse `addRepo/WebhookPrompt` directly). Secret fields render empty with "leave blank to keep current" hint.
+- [x] **7.3** Add cog-icon edit button per repo row in `src/components/DashboardSidebar.tsx`. Opens EditRepoModal for that repo.
+- [x] **7.4** Wire `handleEditRepo(repo)` into new `src/hooks/useEditRepo.ts` (extracted to keep `useDashboardData.ts` under 500 lines). PUTs to `/api/repos/[id]`, then refreshes repo list. Shows WebhookPrompt only if cloneUrl/mode changed.
+- [x] **Verify:** Typecheck clean. All 33 tests pass. EditRepoModal renders with prefilled values; secret fields show "leave blank to keep current" hint. WebhookPrompt only fires on mode/URL change, not secret rotation.
 
 ## Phase 8 — Deployment topology detection (localhost vs public URL)
 

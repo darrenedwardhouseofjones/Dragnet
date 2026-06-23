@@ -20,8 +20,10 @@ import LlmConfigView from "./components/views/LlmConfigView";
 import DashboardSidebar from "./components/DashboardSidebar";
 import PrsView from "./components/views/PrsView";
 import AddRepoModal from "./components/modals/addRepo";
+import EditRepoModal from "./components/modals/editRepo";
 import WebhookPrompt from "./components/modals/addRepo/WebhookPrompt";
 import { useDashboardData } from "./hooks/useDashboardData";
+import { useEditRepo } from "./hooks/useEditRepo";
 import { type ActiveTab } from "./lib/types";
 
 export default function App() {
@@ -30,6 +32,14 @@ export default function App() {
   const [pendingWebhook, setPendingWebhook] = useState<{ repoId: string; repoName: string; hasPat: boolean } | null>(null);
 
   const d = useDashboardData();
+  const ed = useEditRepo({
+    onUpdated: async () => {
+      await d.fetchPrsForSelectedRepo(d.selectedRepoId, true);
+    },
+    onWebhookPrompt: ({ id, name, hasPat }) => {
+      setPendingWebhook({ repoId: id, repoName: name, hasPat });
+    },
+  });
 
   useEffect(() => {
     if (d.lastRegisteredRepo) {
@@ -100,6 +110,7 @@ export default function App() {
             d.setSelectedRepoId(repoId);
             d.fetchPrsForSelectedRepo(repoId, false);
           }}
+          onEditRepo={(repo) => ed.openEditor(repo)}
           prs={d.prs}
           selectedPrId={d.selectedPrId}
           onSelectPr={(prId) => {
@@ -369,6 +380,30 @@ export default function App() {
             setNewDeployKey={d.setNewDeployKey}
             newPat={d.newPat}
             setNewPat={d.setNewPat}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: Edit Existing Project */}
+      <AnimatePresence>
+        {ed.showEditRepoModal && ed.editingRepo && (
+          <EditRepoModal
+            repo={ed.editingRepo}
+            onClose={ed.closeEditor}
+            onSubmit={ed.handleEditRepo}
+            errorFeedback={ed.editErrorFeedback}
+            newRepoMode={ed.editMode}
+            setNewRepoMode={ed.setEditMode}
+            newRepoPath={ed.editPath}
+            setNewRepoPath={ed.setEditPath}
+            newCloneUrl={ed.editCloneUrl}
+            setNewCloneUrl={ed.setEditCloneUrl}
+            newCloneUrlHttps={ed.editCloneUrlHttps}
+            setNewCloneUrlHttps={ed.setEditCloneUrlHttps}
+            newDeployKey={ed.editDeployKey}
+            setNewDeployKey={ed.setEditDeployKey}
+            newPat={ed.editPat}
+            setNewPat={ed.setEditPat}
           />
         )}
       </AnimatePresence>
