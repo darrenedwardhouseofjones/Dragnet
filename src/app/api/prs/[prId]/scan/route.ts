@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { runPrScan } from "@/reviewService";
 import { refreshPrFiles } from "@/src/lib/getRealLocalPrs";
+import { assertIndexFresh } from "@/src/lib/indexFreshness";
 
 export async function POST(req: Request, { params }: { params: Promise<{ prId: string }> }) {
   const { prId } = await params;
@@ -18,16 +19,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ prId: s
 
     const repo = await prisma.repository.findUnique({
       where: { id: pr.repoId },
-      select: { indexedAt: true, name: true, path: true, baseBranch: true },
+      select: { id: true, name: true, indexedAt: true, lastCommitHash: true, path: true, baseBranch: true },
     });
     if (!repo) {
       return NextResponse.json({ error: "Repository record not found." }, { status: 404 });
     }
-    if (!repo.indexedAt) {
+
+    const freshness = assertIndexFresh(repo);
+    if (freshness.ok === false) {
       return NextResponse.json(
         {
-          error: "INDEX_REQUIRED",
-          message: `Project "${repo.name}" has not been indexed yet. Index the codebase first (Codebase AST graph tab → Re-index), then run the review.`,
+          error: freshness.kind,
+          message: freshness.message,
           repoId: pr.repoId,
         },
         { status: 409 },

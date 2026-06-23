@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
+import { currentHeadCommit } from "../lib/indexFreshness";
 
 import { EmbeddingService } from "./embeddingService";
 
@@ -412,9 +413,10 @@ export class IndexingService {
 
     // If nothing changed at all, short-circuit
     if (changed.length === 0 && deletedFilePaths.length === 0 && existingByPath.size > 0) {
+      const headAtShortCircuit = currentHeadCommit(resolvedPath);
       await prisma.repository.updateMany({
         where: { id: repoId },
-        data: { status: 'idle', indexedAt: new Date().toISOString() },
+        data: { status: 'idle', indexedAt: new Date().toISOString(), lastCommitHash: headAtShortCircuit ?? '' },
       });
       const totalSymbols = await prisma.symbol.count({ where: { repoId } });
       const totalEdges = await prisma.edge.count({ where: { repoId } });
@@ -545,9 +547,10 @@ export class IndexingService {
       this.startBackgroundEnrichment(repoId, resolvedPath);
     }
 
+    const headAtCompletion = currentHeadCommit(resolvedPath);
     await prisma.repository.updateMany({
       where: { id: repoId },
-      data: { status: 'idle', indexedAt: new Date().toISOString() },
+      data: { status: 'idle', indexedAt: new Date().toISOString(), lastCommitHash: headAtCompletion ?? '' },
     });
 
     return {

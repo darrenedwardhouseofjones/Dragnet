@@ -4,6 +4,7 @@ import { findPrByIdOrNumber, findPrByBranch } from "@/src/lib/findPr";
 import { refreshPrFiles } from "@/src/lib/getRealLocalPrs";
 import { runPrScan } from "@/reviewService";
 import { authenticateApiRequest } from "@/src/lib/apiAuth";
+import { assertIndexFresh } from "@/src/lib/indexFreshness";
 
 function defaultRepoId(url: string, args?: string[]): string | null {
   if (args && args.length > 0) return args[0];
@@ -142,14 +143,17 @@ async function handlePrCheck(args: any): Promise<string> {
   if (isReviewActive(pr.id)) return `> Review already in progress for **${pr.sourceBranch}**. Check results with \`prcheckstatus ${pr.sourceBranch}\` or view in dashboard.`;
 
   const repo = await prisma.repository.findUnique({ where: { id: pr.repoId } });
-  if (!repo?.indexedAt) {
-    return `> ⚠ **Index required.** Project \`${repo?.name ?? pr.repoId}\` has not been indexed yet — reviews without an index produce diff-only guesses.\n>\n> Index it first via the dashboard (\`Codebase AST graph\` tab → \`Index Now\`) or \`POST /api/repos/${pr.repoId}/index\`, then retry \`prcheck\`.`;
+  if (!repo) {
+    return `> ⚠ Repository for PR \`${pr.sourceBranch}\` could not be loaded.`;
+  }
+
+  const freshness = assertIndexFresh(repo);
+  if (freshness.ok === false) {
+    return `> ⚠ **${freshness.kind === "INDEX_REQUIRED" ? "Index required" : "Stale index"}.** ${freshness.message}`;
   }
 
   try {
-    if (repo) {
-      await refreshPrFiles(repo.path, repo.baseBranch, pr.sourceBranch, pr.id);
-    }
+    await refreshPrFiles(repo.path, repo.baseBranch, pr.sourceBranch, pr.id);
   } catch (e) {
     console.warn("[api] prfile refresh failed, using cached:", e);
   }
@@ -297,12 +301,18 @@ async function handleLegacyCommand(body: any, defRepo: string | null) {
       }
       const repo = await prisma.repository.findUnique({
         where: { id: pr.repoId },
-        select: { indexedAt: true, name: true },
       });
-      if (!repo?.indexedAt) {
+      if (!repo) {
         return NextResponse.json({
           status: "Error",
-          message: `> ⚠ **Index required.** Project \`${repo?.name ?? pr.repoId}\` has not been indexed yet. Index it via the dashboard or \`POST /api/repos/${pr.repoId}/index\`, then retry prcheck.`,
+          message: `> Repository for PR \`${pr.sourceBranch}\` could not be loaded.`,
+        });
+      }
+      const freshness = assertIndexFresh(repo);
+      if (freshness.ok === false) {
+        return NextResponse.json({
+          status: "Error",
+          message: `> ⚠ **${freshness.kind === "INDEX_REQUIRED" ? "Index required" : "Stale index"}.** ${freshness.message}`,
         });
       }
       activeReviews.set(pr.id, Date.now());

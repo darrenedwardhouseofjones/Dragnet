@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { runPrScan } from "@/reviewService";
 import { authenticateApiRequest } from "@/src/lib/apiAuth";
+import { assertIndexFresh } from "@/src/lib/indexFreshness";
 
 export async function POST(req: Request) {
   const auth = await authenticateApiRequest(req);
@@ -30,12 +31,13 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!repo.indexedAt) {
+    const freshness = assertIndexFresh(repo);
+    if (freshness.ok === false) {
       return NextResponse.json(
         {
           passed: false,
-          error: "INDEX_REQUIRED",
-          message: `Project "${repo.name}" has not been indexed. Run \`npm run dev\`, open the dashboard, and click "Index Now" before pushing.`,
+          error: freshness.kind,
+          message: freshness.message,
         },
         { status: 409 },
       );

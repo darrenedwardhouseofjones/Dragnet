@@ -13,10 +13,10 @@ Mark each `- [ ]` as `- [x]` when complete. Per user convention: update this fil
 
 ## Phase 2 — Staleness check (HEAD vs indexed-at HEAD)
 
-- [ ] Create `src/lib/indexFreshness.ts` exporting `assertIndexFresh(repo)` discriminated union. Uses `execFileSync('git', ['-C', path, 'rev-parse', 'HEAD'])` — never shell.
-- [ ] Populate `lastCommitHash` in `indexingService.ts` after both success sites (short-circuit ~417 + full success ~550).
-- [ ] Replace Phase 1 inline checks at all 4 scan entry points with `assertIndexFresh` calls. Each surface maps `kind:"STALE_INDEX"` to its own response envelope.
-- [ ] `npm run lint` clean.
+- [x] Create `src/lib/indexFreshness.ts` exporting `assertIndexFresh(repo)` discriminated union. Uses `execFileSync('git', ['-C', path, 'rev-parse', 'HEAD'])` — never shell.
+- [x] Populate `lastCommitHash` in `indexingService.ts` after both success sites (short-circuit ~417 + full success ~550).
+- [x] Replace Phase 1 inline checks at all 4 scan entry points with `assertIndexFresh` calls. Each surface maps `kind:"STALE_INDEX"` to its own response envelope.
+- [x] `npm run lint` clean.
 - [ ] Manual: change a file, commit, scan returns 409 STALE_INDEX. After reindex, scan returns 200.
 
 ## Phase 3 — BigInt serialization fix

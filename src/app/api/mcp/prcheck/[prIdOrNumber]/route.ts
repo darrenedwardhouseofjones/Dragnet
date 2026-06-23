@@ -3,6 +3,7 @@ import { prisma } from "@/src/lib/prisma";
 import { findPrByIdOrNumber } from "@/src/lib/findPr";
 import { runPrScan } from "@/reviewService";
 import { authenticateApiRequest } from "@/src/lib/apiAuth";
+import { assertIndexFresh } from "@/src/lib/indexFreshness";
 
 export async function GET(req: Request, { params }: { params: Promise<{ prIdOrNumber: string }> }) {
   const auth = await authenticateApiRequest(req);
@@ -22,12 +23,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ prIdOrNu
 
     const repo = await prisma.repository.findUnique({
       where: { id: pr.repoId },
-      select: { indexedAt: true, name: true },
+      select: { id: true, name: true, indexedAt: true, lastCommitHash: true, path: true },
     });
-    if (!repo?.indexedAt) {
+    if (!repo) {
       return NextResponse.json({
         status: "Error",
-        message: `Project "${repo?.name ?? pr.repoId}" has not been indexed. Index it first via the dashboard or the /api/repos/{id}/index endpoint, then retry prcheck.`,
+        message: `Repository for PR "${prIdOrNumber}" could not be loaded.`,
+      }, { status: 404 });
+    }
+
+    const freshness = assertIndexFresh(repo);
+    if (freshness.ok === false) {
+      return NextResponse.json({
+        status: "Error",
+        message: freshness.message,
       }, { status: 409 });
     }
 
