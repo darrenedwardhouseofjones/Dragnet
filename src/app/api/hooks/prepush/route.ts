@@ -51,7 +51,7 @@ export async function POST(req: Request) {
       findingsCount: result.findings.length,
       findings: result.findings,
       message: passed
-        ? `✓ GrepLoop: PR approved (${result.rating}/10)`
+        ? `✓ GrepLoop: PR approved (${result.rating}/5)`
         : `✗ GrepLoop: PR blocked — rating ${result.rating}/5 (requires 4+). Fix findings or use --no-verify to bypass.`,
       usedModel: result.usedModel,
     });

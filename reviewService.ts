@@ -288,7 +288,7 @@ export async function runPrScan(prId: string): Promise<ScanResult> {
   await prisma.pullRequest.updateMany({ where: { id: prId }, data: { status: "In Progress" } });
 
   let findings: any[] = [];
-  let rating = 7;
+  let rating = 3;
   const chatModel = getChatModel();
   let usedModel = chatModel || "unconfigured";
   let systemWarn: string | null = null;
@@ -333,7 +333,7 @@ export async function runPrScan(prId: string): Promise<ScanResult> {
     // No LLM configured — fall straight through to procedural findings.
     systemWarn = "No LLM endpoint or chat model configured. Open the LLM Settings tab, enter your OpenRouter key, and pick a model to get real reviews.";
     findings = generateRealisticFindings(pr, files);
-    rating = findings.some((f) => f.severity === "blocker") ? 5 : 8;
+    rating = findings.some((f) => f.severity === "blocker") ? 2 : 3;
   } else {
     try {
       const initialPrompt = `Your mission: audit this PR with maximum prejudice. Assume the author is hiding something. Trace every changed function across the codebase — check its callers, its callees, its error handling, its edge cases. Use \`searchCodebase\`, \`getCallers\`, and \`findSimilar\` to validate that nothing is overlooked.
@@ -436,20 +436,20 @@ ${diffPayload}`;
 
       if (finalReview) {
         findings = finalReview.findings || [];
-        rating = Math.max(1, Math.min(10, finalReview.rating || 7));
+        rating = Math.max(1, Math.min(5, finalReview.rating || 3));
       } else {
         // Loop ended without a final review (max iterations, model refusal,
         // or unparseable text). Fall through to procedural so the UI still
         // shows something.
         systemWarn = `Model ${chatModel} ended the agentic loop without a final review. Showing procedural fallback findings.`;
         findings = generateRealisticFindings(pr, files);
-        rating = findings.some((f) => f.severity === "blocker") ? 5 : 8;
+        rating = findings.some((f) => f.severity === "blocker") ? 2 : 3;
       }
     } catch (aiErr: any) {
       console.error("LLM call failed, falling back to procedural findings...", aiErr);
       systemWarn = `LLM call failed (${aiErr.message}). Showing procedural fallback findings.`;
       findings = generateRealisticFindings(pr, files);
-      rating = findings.some((f) => f.severity === "blocker") ? 5 : 8;
+      rating = findings.some((f) => f.severity === "blocker") ? 2 : 3;
     }
   }
 

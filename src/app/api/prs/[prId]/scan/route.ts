@@ -1,17 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { runPrScan } from "@/reviewService";
+import { refreshPrFiles } from "@/src/lib/getRealLocalPrs";
 
-/**
- * Triggers an AI review scan on a PR.
- *
- * Hard-gate: refuses with 409 INDEX_REQUIRED if the PR's repository has
- * never been indexed (`indexedAt` is null). Reviewing without an index
- * silently degraded to diff-only LLM guesses (or, with no LLM configured,
- * literal hardcoded fake findings from generateRealisticFindings) — both
- * worse than no review at all. See prd.md:194-196 for the index-first
- * contract.
- */
 export async function POST(req: Request, { params }: { params: Promise<{ prId: string }> }) {
   const { prId } = await params;
   await req.json().catch(() => ({}));
@@ -19,7 +10,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ prId: s
   try {
     const pr = await prisma.pullRequest.findUnique({
       where: { id: prId },
-      select: { repoId: true },
+      select: { repoId: true, sourceBranch: true, targetBranch: true },
     });
     if (!pr) {
       return NextResponse.json({ error: "PR not found." }, { status: 404 });
@@ -27,7 +18,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ prId: s
 
     const repo = await prisma.repository.findUnique({
       where: { id: pr.repoId },
-      select: { indexedAt: true, name: true },
+      select: { indexedAt: true, name: true, path: true, baseBranch: true },
     });
     if (!repo) {
       return NextResponse.json({ error: "Repository record not found." }, { status: 404 });
@@ -44,7 +35,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ prId: s
     }
 
     await prisma.pullRequest.updateMany({ where: { id: prId }, data: { status: 'In Progress' } });
-    await new Promise(resolve => setTimeout(resolve, 800));
+
+    // Refresh git diff before scanning — ensures PrFile records are current
+    // even if the PR was just created or files were never fetched.
+    const repoPath = repo.path;
+    const baseBranch = pr.targetBranch || repo.baseBranch || "main";
+    if (repoPath && pr.sourceBranch) {
+      await refreshPrFiles(repoPath, baseBranch, pr.sourceBranch, prId);
+    }
 
     const result = await runPrScan(prId);
 

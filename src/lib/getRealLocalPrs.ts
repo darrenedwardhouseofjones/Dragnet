@@ -221,22 +221,29 @@ function listBranches(repoPath: string): BranchInfo[] {
 
 export async function refreshPrFiles(repoPath: string, baseBranch: string, branchName: string, prId: string) {
   const files = collectBranchFiles(repoPath, baseBranch, branchName);
-  await prisma.prFile.deleteMany({ where: { prId } });
-  if (files.length > 0) {
-    await prisma.prFile.createMany({
-      data: files.map((f, i) => ({
-        id: `file-${prId}-${i}`,
-        prId,
-        filename: f.filename,
-        status: f.status,
-        additions: f.additions,
-        deletions: f.deletions,
-        originalContent: sanitizeForPg(f.originalContent),
-        modifiedContent: sanitizeForPg(f.modifiedContent),
-        diff: sanitizeForPg(f.diff),
-      })),
-    });
-  }
+  // Atomic swap: delete + create inside a single transaction so a mid-write
+  // failure can't leave the PR with zero files (which would feed an empty
+  // diff to the reviewer). The diff fetches happen in collectBranchFiles
+  // *before* this block, so the transaction body is fast metadata-only I/O —
+  // safe even under pgbouncer's 5s interactive-transaction cap.
+  await prisma.$transaction(async (tx) => {
+    await tx.prFile.deleteMany({ where: { prId } });
+    if (files.length > 0) {
+      await tx.prFile.createMany({
+        data: files.map((f, i) => ({
+          id: `file-${prId}-${i}`,
+          prId,
+          filename: f.filename,
+          status: f.status,
+          additions: f.additions,
+          deletions: f.deletions,
+          originalContent: sanitizeForPg(f.originalContent),
+          modifiedContent: sanitizeForPg(f.modifiedContent),
+          diff: sanitizeForPg(f.diff),
+        })),
+      });
+    }
+  });
 }
 
 function collectBranchFiles(

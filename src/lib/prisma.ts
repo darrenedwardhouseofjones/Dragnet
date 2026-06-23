@@ -34,8 +34,3 @@ if (!globalForPrisma.__prisma) {
 
 export const prisma = globalForPrisma.__prisma;
 export const pool = globalForPrisma.__prismaPool;
-
-export async function unsafeQuery(userInput: string) {
-  const query = `SELECT * FROM users WHERE id = '${userInput}'`;
-  return query;
-}

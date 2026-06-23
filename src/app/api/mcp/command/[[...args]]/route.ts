@@ -22,7 +22,32 @@ function withDefaultRepo(args: any, defRepo: string | null): any {
   return args;
 }
 
-const activeReviews = new Set<string>();
+/**
+ * In-progress review tracker. Maps prId → start timestamp.
+ *
+ * Why TTL: a review that hangs (network partition, LLM API stall, unhandled
+ * rejection that bypasses .catch) would otherwise sit in the Set forever,
+ * blocking re-reviews. Reviews older than REVIEW_TTL_MS are evicted on
+ * read and the caller can re-queue.
+ *
+ * Restart note: this Map is in-memory only. A server crash mid-review
+ * loses the entry — the PR simply appears "not in progress" and the
+ * caller can re-trigger. Acceptable for single-user dev; a persistent
+ * queue would be the production fix.
+ */
+const activeReviews = new Map<string, number>();
+const REVIEW_TTL_MS = 5 * 60 * 1000;
+
+function isReviewActive(prId: string): boolean {
+  const startedAt = activeReviews.get(prId);
+  if (!startedAt) return false;
+  if (Date.now() - startedAt > REVIEW_TTL_MS) {
+    activeReviews.delete(prId);
+    console.warn(`[mcp] review timed out for ${prId} (>${REVIEW_TTL_MS}ms) — evicted`);
+    return false;
+  }
+  return true;
+}
 
 function toolsWithRepo(repo: string | null): any[] {
   const suffix = repo ? ` (repo: ${repo})` : "";
@@ -114,7 +139,7 @@ async function handlePrCheck(args: any): Promise<string> {
   const pr = await resolvePrFromArgs(args);
   if (!pr) return `> **No pull requests found** matching that criteria on this repository.\n>\n> To review a PR, create a feature branch and push it, or check available PRs with \`prlist\`.`;
 
-  if (activeReviews.has(pr.id)) return `> Review already in progress for **${pr.sourceBranch}**. Check results with \`prcheckstatus ${pr.sourceBranch}\` or view in dashboard.`;
+  if (isReviewActive(pr.id)) return `> Review already in progress for **${pr.sourceBranch}**. Check results with \`prcheckstatus ${pr.sourceBranch}\` or view in dashboard.`;
 
   try {
     const repo = await prisma.repository.findUnique({ where: { id: pr.repoId } });
@@ -125,7 +150,7 @@ async function handlePrCheck(args: any): Promise<string> {
     console.warn("[api] prfile refresh failed, using cached:", e);
   }
 
-  activeReviews.add(pr.id);
+  activeReviews.set(pr.id, Date.now());
   runPrScan(pr.id).then((sr) => {
     activeReviews.delete(pr.id);
     prisma.pullRequest.updateMany({ where: { id: pr.id }, data: { rating: sr.rating } }).catch(() => {});
@@ -142,10 +167,17 @@ async function handlePrCheckStatus(args: any): Promise<string> {
   const pr = await resolvePrFromArgs(args);
   if (!pr) return `> **No pull requests found** matching that criteria on this repository.`;
 
-  if (activeReviews.has(pr.id)) return `> Review still in progress for **${pr.sourceBranch}**... Check back soon or view dashboard.`;
+  if (isReviewActive(pr.id)) return `> Review still in progress for **${pr.sourceBranch}**... Check back soon or view dashboard.`;
+
+  // Re-fetch the PR so the rating reflects any async update from runPrScan.
+  // Without this, `pr` carries the rating it had when first resolved —
+  // a TOCTOU window where the review just finished but the stale rating
+  // (null or old) is what gets formatted.
+  const freshPr = await prisma.pullRequest.findUnique({ where: { id: pr.id } });
+  if (!freshPr) return `> **No pull requests found** matching that criteria on this repository.`;
 
   const findings = await prisma.reviewFinding.findMany({ where: { prId: pr.id }, orderBy: { line: "asc" } });
-  return formatFindings(pr, findings);
+  return formatFindings(freshPr, findings);
 }
 
 async function handlePrComments(args: any): Promise<string> {
@@ -254,12 +286,23 @@ async function handleLegacyCommand(body: any, defRepo: string | null) {
     if (cmdName.endsWith("prcheck") || cmdName.endsWith("checkpr")) {
       const pr = await resolvePr({ ...body, repoId: body.repoId || defRepo }, argVal);
       if (!pr) return NextResponse.json({ status: "Error", message: "> No PR found on this repository." });
-      const sr = await runPrScan(pr.id);
+      if (isReviewActive(pr.id)) {
+        return NextResponse.json({
+          status: "Accepted", message: `> Review already in progress for **${pr.sourceBranch}**. Poll with prcheckstatus.`,
+        });
+      }
+      activeReviews.set(pr.id, Date.now());
+      runPrScan(pr.id).then((sr) => {
+        activeReviews.delete(pr.id);
+        prisma.pullRequest.updateMany({ where: { id: pr.id }, data: { rating: sr.rating } }).catch(() => {});
+        console.log(`[api-legacy] review complete for ${pr.sourceBranch}: ${sr.rating}/5`);
+      }).catch((err) => {
+        activeReviews.delete(pr.id);
+        console.error(`[api-legacy] review failed for ${pr.sourceBranch}:`, err);
+      });
       return NextResponse.json({
-        status: "Success", type: "check", rating: `${sr.rating}/5`,
-        productionGrade: sr.rating >= 4 ? "YES" : "NO",
-        findingsCount: sr.findings.length,
-        findings: sr.findings.map((f: any) => `[${f.category} | ${f.severity}] ${f.filename}:${f.line} - ${f.explanation}`),
+        status: "Accepted",
+        message: `> **Review started** for \`${pr.sourceBranch}\`. Poll with \`prcheckstatus ${pr.sourceBranch}\`.`,
       });
     }
     if (cmdName.endsWith("prcomments") || cmdName.endsWith("comments")) {

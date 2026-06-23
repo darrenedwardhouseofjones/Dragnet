@@ -63,6 +63,7 @@ export interface ReviewFinding {
   explanation: string;
   diffSuggestion: string;
   evidenceChain?: string;
+  confidence?: number;
   timestamp: string;
 }
 

@@ -379,8 +379,11 @@ export class IndexingService {
     const allFiles: string[] = [];
     this.walkDirSync(resolvedPath, allFiles);
 
+    const ignored = this.filterGitIgnored(resolvedPath, allFiles);
+    const unignored = allFiles.filter(f => !ignored.has(f));
+
     const targetExts = [".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".java", ".cpp", ".cc", ".h", ".hpp"];
-    const filesOnDisk = allFiles
+    const filesOnDisk = unignored
       .filter(f => targetExts.includes(path.extname(f).toLowerCase()))
       .map(f => ({
         absolutePath: f,
@@ -552,6 +555,34 @@ export class IndexingService {
       symbolsExtractedCount: symbolsCount,
       edgesResolvedCount: edgesResolved,
     };
+  }
+
+  public static async clearIndex(repoId: string): Promise<void> {
+    await prisma.file.deleteMany({ where: { repoId } });
+    await prisma.symbol.deleteMany({ where: { repoId } });
+    await prisma.edge.deleteMany({ where: { repoId } });
+  }
+
+  private static filterGitIgnored(repoPath: string, files: string[]): Set<string> {
+    if (files.length === 0) return new Set();
+    const { execSync } = require("child_process") as typeof import("child_process");
+    try {
+      const result = execSync("git check-ignore --stdin", {
+        cwd: repoPath,
+        encoding: "utf8",
+        timeout: 30_000,
+        maxBuffer: 10 * 1024 * 1024,
+        input: files.join("\n"),
+      });
+      return new Set(result.trim().split("\n").filter(Boolean));
+    } catch (e: any) {
+      if (e.stdout) {
+        const lines = String(e.stdout).trim().split("\n").filter(Boolean);
+        if (lines.length > 0) return new Set(lines);
+      }
+      const msg = e.stderr?.toString().trim() || e.message || "Unknown error";
+      throw new Error(`Cannot verify gitignore rules — aborting index to avoid exposing ignored files. ${msg}`);
+    }
   }
 
   private static walkDirSync(dir: string, fileList: string[]) {
