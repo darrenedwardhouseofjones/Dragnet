@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Activity, BarChart3, Folder, GitBranch, Plus, Settings, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Activity, BarChart3, CheckCircle2, Folder, GitBranch, Loader2, Plus, Settings, Sparkles, XCircle } from "lucide-react";
 import type { ActivityLog, LlmPresetsState, PullRequest, Repository } from "../lib/types";
 import { getStatusBadgeStyle } from "../lib/types";
 
@@ -112,6 +112,30 @@ function ProjectsPane({
   onSelectPr: (prId: string) => void;
   onAddProject: () => void;
 }) {
+  const sortedRepos = useMemo(
+    () => [...repos].sort((a, b) => a.name.localeCompare(b.name)),
+    [repos],
+  );
+
+  const repoReviewStatus = useMemo(() => {
+    const map = new Map<string, "idle" | "scanning" | "complete" | "failed">();
+    for (const repo of repos) {
+      const repoPrs = prs.filter((p) => p.repoId === repo.id);
+      if (repoPrs.length === 0) {
+        map.set(repo.id, "idle");
+        continue;
+      }
+      const hasScanning = repoPrs.some((p) => p.status === "In Progress");
+      const hasFailed = repoPrs.some((p) => p.status === "Failed");
+      const allRated = repoPrs.every((p) => p.rating != null);
+      if (hasScanning) map.set(repo.id, "scanning");
+      else if (hasFailed) map.set(repo.id, "failed");
+      else if (allRated) map.set(repo.id, "complete");
+      else map.set(repo.id, "idle");
+    }
+    return map;
+  }, [repos, prs]);
+
   return (
     <>
       <div className="p-4 border-b border-white/5 shrink-0">
@@ -131,18 +155,19 @@ function ProjectsPane({
       </div>
 
       <div className="p-4 space-y-3 flex-1 overflow-y-auto min-h-0" id="project-navigation-list">
-        {repos.length === 0 ? (
+        {sortedRepos.length === 0 ? (
           <div className="py-8 text-center text-xs text-slate-600 font-mono">
             No workspace projects registered yet.
           </div>
         ) : (
-          repos.map((repo) => {
+          sortedRepos.map((repo) => {
             const isRepoSelected = selectedRepoId === repo.id;
             return (
               <div key={repo.id} className="space-y-1">
                 <RepoRow
                   repo={repo}
                   isRepoSelected={isRepoSelected}
+                  reviewStatus={repoReviewStatus.get(repo.id) || "idle"}
                   onSelect={() => onSelectRepo(repo.id)}
                   onEdit={() => onEditRepo(repo)}
                   onRepoSettings={() => onRepoSettings(repo)}
@@ -163,19 +188,47 @@ function ProjectsPane({
   );
 }
 
+const STATUS_CONFIG: Record<string, { icon: React.ReactNode; label: string; badgeClass: string }> = {
+  scanning: {
+    icon: <Loader2 size={9} className="animate-spin" />,
+    label: "Scanning",
+    badgeClass: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+  },
+  complete: {
+    icon: <CheckCircle2 size={9} />,
+    label: "Complete",
+    badgeClass: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+  },
+  failed: {
+    icon: <XCircle size={9} />,
+    label: "Failed",
+    badgeClass: "bg-rose-500/20 text-rose-300 border-rose-500/30",
+  },
+  idle: {
+    icon: null,
+    label: "",
+    badgeClass: "bg-slate-900 text-slate-600 border-transparent",
+  },
+};
+
 function RepoRow({
   repo,
   isRepoSelected,
+  reviewStatus,
   onSelect,
   onEdit,
   onRepoSettings,
 }: {
   repo: Repository;
   isRepoSelected: boolean;
+  reviewStatus: string;
   onSelect: () => void;
   onEdit: () => void;
   onRepoSettings: () => void;
 }) {
+  const statusCfg = STATUS_CONFIG[reviewStatus] || STATUS_CONFIG.idle;
+  const prCount = repo.prCount || 0;
+
   return (
     <div
       role="button"
@@ -202,15 +255,22 @@ function RepoRow({
           <span className="text-[8px] font-mono px-1 rounded bg-slate-800 text-slate-400 font-bold">
             {repo.triggerMode}
           </span>
-          <span
-            className={`text-[9px] font-mono font-extrabold px-1.5 py-0.2 rounded-full leading-tight ${
-              (repo.prCount || 0) > 0
-                ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
-                : "bg-slate-900 text-slate-600 border border-transparent"
-            }`}
-          >
-            {repo.prCount || 0}
-          </span>
+          {prCount > 0 ? (
+            <span
+              className={`text-[9px] font-mono font-extrabold px-1.5 py-0.2 rounded-full leading-tight border flex items-center gap-1 ${statusCfg.badgeClass}`}
+              title={`${prCount} PRs — ${statusCfg.label || "No reviews yet"}`}
+            >
+              {statusCfg.icon}
+              <span>{prCount}</span>
+              {statusCfg.label && (
+                <span className="hidden xl:inline text-[7px] uppercase tracking-wider">{statusCfg.label}</span>
+              )}
+            </span>
+          ) : (
+            <span className="text-[9px] font-mono font-extrabold px-1.5 py-0.2 rounded-full leading-tight bg-slate-900 text-slate-600 border border-transparent">
+              0
+            </span>
+          )}
           <button
             type="button"
             onClick={(e) => {
