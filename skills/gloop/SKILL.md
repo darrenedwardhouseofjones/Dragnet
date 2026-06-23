@@ -21,6 +21,7 @@ All commands live under `/gloop`:
 | `/gloop status <number>` | Show existing review results without triggering a new scan. |
 | `/gloop fix <number>` | Auto-fix loop: review → fix → re-review until rating >= 4/5. |
 | `/gloop fix <number> --once` | Single pass: fix all findings above 0.5 confidence, commit, done. |
+| `/gloop help` | Print this command table. Use whenever the user asks what `/gloop` can do. |
 
 Typical workflow: `/gloop` → see PR list → `/gloop 2` → see it's 2/5 → `/gloop fix 2` → loop until 4/5.
 
@@ -29,6 +30,7 @@ Typical workflow: `/gloop` → see PR list → `/gloop 2` → see it's 2/5 → `
 Detect the current repo from the working directory and resolve it to a GrepLoop `repoId` via `GET /api/repos/resolve?dir=<pwd-url-encoded>`. If the API returns null, say "This project is not registered in GrepLoop" and stop. Otherwise use the resolved repoId for subsequent calls.
 
 Dispatch on `$ARGUMENTS`:
+- `help` (or `-h`, `--help`) → print the command table above and stop. Do not call any API.
 - Empty → list mode
 - `status <number>` → status mode
 - `fix <number> [--once]` → fix mode
