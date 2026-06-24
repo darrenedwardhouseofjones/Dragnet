@@ -102,7 +102,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ prId: s
       if (fresh.ok === true) {
         console.log(`[scan] route: cache HIT on runId=${fresh.runId} — short-circuiting`);
         const findings = await prisma.reviewFinding.findMany({
-          where: { reviewRunId: fresh.runId, verificationStatus: { not: "rejected" } },
+          where: {
+            reviewRunId: fresh.runId,
+            OR: [
+              { verificationStatus: null },
+              { verificationStatus: { not: "rejected" } },
+            ],
+          },
           select: { id: true, category: true, severity: true, filename: true, line: true, explanation: true, diffSuggestion: true, evidenceChain: true, confidence: true, verificationStatus: true, verificationNote: true, timestamp: true },
         });
         return NextResponse.json({

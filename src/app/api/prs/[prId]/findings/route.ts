@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/src/lib/prisma";
-import { computeDiffHash } from "@/src/lib/reviewFreshness";
+import { getLatestCompletedReview } from "@/src/lib/reviewFreshness";
 
 /**
  * GET /api/prs/[prId]/findings
@@ -22,22 +21,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ prId: s
   try {
     const { prId } = await params;
 
-    const latestRun = await prisma.reviewRun.findFirst({
-      where: { prId, status: "completed" },
-      orderBy: { completedAt: "desc" },
-      select: {
-        id: true,
-        commitHash: true,
-        diffHash: true,
-        reviewConfigHash: true,
-        completedAt: true,
-        rating: true,
-        model: true,
-        triggerReason: true,
-      },
-    });
+    const latest = await getLatestCompletedReview(prId);
 
-    if (!latestRun) {
+    if (!latest.reviewRun) {
       return NextResponse.json({
         reviewRun: null,
         findings: [],
@@ -47,52 +33,19 @@ export async function GET(_req: Request, { params }: { params: Promise<{ prId: s
       });
     }
 
-    // Drift check: hash the PR's current PrFile diffs and compare to the
-    // run's recorded diffHash. If they differ, the UI shows a ⚠ stale chip.
-    const prFiles = await prisma.prFile.findMany({
-      where: { prId },
-      select: { filename: true, diff: true },
-    });
-    const currentDiffHash = computeDiffHash(prFiles);
-    const stale = latestRun.diffHash !== "" && latestRun.diffHash !== currentDiffHash;
-
-    const [findings, rejectedCount] = await Promise.all([
-      prisma.reviewFinding.findMany({
-        where: { reviewRunId: latestRun.id, verificationStatus: { not: "rejected" } },
-        select: {
-          id: true,
-          category: true,
-          severity: true,
-          filename: true,
-          line: true,
-          explanation: true,
-          diffSuggestion: true,
-          evidenceChain: true,
-          confidence: true,
-          verificationStatus: true,
-          verificationNote: true,
-          timestamp: true,
-        },
-        orderBy: { line: "asc" },
-      }),
-      prisma.reviewFinding.count({
-        where: { reviewRunId: latestRun.id, verificationStatus: "rejected" },
-      }),
-    ]);
-
     return NextResponse.json({
       reviewRun: {
-        id: latestRun.id,
-        commitHash: latestRun.commitHash,
-        diffHash: latestRun.diffHash,
-        completedAt: latestRun.completedAt,
-        rating: latestRun.rating,
-        model: latestRun.model,
-        triggerReason: latestRun.triggerReason,
+        id: latest.reviewRun.id,
+        commitHash: latest.reviewRun.commitHash,
+        diffHash: latest.reviewRun.diffHash,
+        completedAt: latest.reviewRun.completedAt,
+        rating: latest.reviewRun.rating,
+        model: latest.reviewRun.model,
+        triggerReason: latest.reviewRun.triggerReason,
       },
-      findings,
-      rejectedCount,
-      stale,
+      findings: latest.findings,
+      rejectedCount: latest.rejectedCount,
+      stale: latest.stale,
     });
   } catch (err: any) {
     console.error("Error fetching findings for PR:", err);

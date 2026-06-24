@@ -12,10 +12,12 @@
  *        fall through to Stage B)
  *
  *   Stage B — counter-evidence retrieval (4 finding families only)
- *     - auth          → grep for requireSession, authenticateSessionOrKey,
- *                       authenticateApiRequest, verifyGithubSignature
+ *     - auth          → inspect targeted guardrail files for requireSession,
+ *                       authenticateSessionOrKey, authenticateApiRequest,
+ *                       verifyGithubSignature
  *     - data-isolation → read cited function, look for `where: { repoId, ... }`
- *     - webhook/network → grep for HMAC verification, signature checks
+ *     - webhook/network → inspect targeted webhook helpers/routes for HMAC
+ *                       verification, signature checks
  *     - concurrency  → read cited function, look for beginReview/endReview,
  *                       $transaction, atomic upserts
  *
@@ -38,7 +40,6 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import { prisma } from "@/src/lib/prisma";
 import { getChatClient, getChatModel } from "@/src/lib/llmClient";
 
@@ -227,26 +228,73 @@ function retrieveCounterEvidence(
   family: Family,
   repoPath: string,
 ): string[] {
-  const patterns = COUNTER_EVIDENCE_PATTERNS[family];
+  const patterns = COUNTER_EVIDENCE_PATTERNS[family].map((p) => new RegExp(p, "i"));
+  const candidates = candidateCounterEvidenceFiles(finding, family);
   const hits: string[] = [];
 
-  for (const pattern of patterns) {
-    try {
-      const out = execFileSync(
-        "grep",
-        ["-rln", "-E", pattern, "--include=*.ts", "--include=*.tsx", "--include=*.js", "--include=*.jsx", "."],
-        { cwd: repoPath, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 },
-      );
-      const files = out.trim().split("\n").filter(Boolean);
-      if (files.length > 0) {
-        hits.push(`Pattern "${pattern}" found in: ${files.slice(0, 3).join(", ")}${files.length > 3 ? ` (+${files.length - 3} more)` : ""}`);
-      }
-    } catch {
-      // grep returns non-zero on no matches — not an error.
+  for (const file of candidates) {
+    const content = loadRelativeFile(repoPath, file);
+    if (!content) continue;
+
+    const lines = content.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      if (!patterns.some((pattern) => pattern.test(lines[i]))) continue;
+
+      const start = Math.max(0, i - 2);
+      const end = Math.min(lines.length, i + 3);
+      const snippet = lines
+        .slice(start, end)
+        .map((line, offset) => `${start + offset + 1}: ${line}`)
+        .join("\n");
+      hits.push(`${file}:${i + 1}\n${snippet}`);
+      break;
     }
   }
 
-  return hits;
+  return hits.slice(0, 8);
+}
+
+function candidateCounterEvidenceFiles(finding: CandidateFinding, family: Family): string[] {
+  const files = new Set<string>();
+  const add = (file?: string | null) => {
+    if (file) files.add(file.replace(/\\/g, "/").replace(/^\.\//, ""));
+  };
+
+  add(finding.filename);
+
+  if (family === "auth") {
+    add("src/proxy.ts");
+    add("src/lib/apiAuth.ts");
+    add("src/lib/api-auth.ts");
+    add("src/lib/auth.ts");
+    add("src/app/api/auth/[...all]/route.ts");
+  } else if (family === "data-isolation") {
+    add("prisma/schema.prisma");
+    add("src/lib/findPr.ts");
+  } else if (family === "webhook-network") {
+    add("src/lib/webhook.ts");
+    add("src/lib/webhookSetup.ts");
+    add("src/app/api/webhooks/github/route.ts");
+    add("src/app/api/webhooks/gitlab/route.ts");
+  } else if (family === "concurrency") {
+    add("src/lib/reviewLocks.ts");
+  }
+
+  return [...files];
+}
+
+function loadRelativeFile(repoPath: string, relativePath: string): string | null {
+  const absolutePath = path.resolve(repoPath, relativePath);
+  const resolvedRepoPath = path.resolve(repoPath);
+  if (!absolutePath.startsWith(resolvedRepoPath + path.sep) && absolutePath !== resolvedRepoPath) {
+    return null;
+  }
+
+  try {
+    return fs.readFileSync(absolutePath, "utf-8");
+  } catch {
+    return null;
+  }
 }
 
 const COUNTER_EVIDENCE_PATTERNS: Record<Family, string[]> = {

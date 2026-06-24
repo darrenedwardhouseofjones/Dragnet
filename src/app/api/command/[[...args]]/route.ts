@@ -13,6 +13,7 @@ import {
   computeReviewConfigHash,
   shortHash,
   createReviewRun,
+  getLatestCompletedReview,
 } from "@/src/lib/reviewFreshness";
 
 /**
@@ -164,6 +165,24 @@ function formatFindings(pr: any, findings: any[]): string {
   return out;
 }
 
+async function formatLatestFindings(pr: any): Promise<string> {
+  const latest = await getLatestCompletedReview(pr.id);
+  const displayPr = {
+    ...pr,
+    rating: latest.reviewRun?.rating ?? pr.rating,
+  };
+  let out = formatFindings(displayPr, latest.findings);
+  if (!latest.reviewRun) {
+    out += "\n_No completed ReviewRun yet._\n";
+  } else {
+    out += `\n_Reviewed commit ${latest.reviewRun.commitHash.slice(0, 7)}${latest.stale ? " (stale)" : ""}._\n`;
+    if (latest.rejectedCount > 0) {
+      out += `_Verifier filtered ${latest.rejectedCount} finding${latest.rejectedCount === 1 ? "" : "s"}._\n`;
+    }
+  }
+  return out;
+}
+
 async function handlePrCheck(args: any): Promise<string> {
   const pr = await resolvePrFromArgs(args);
   if (!pr) return `> **No pull requests found** matching that criteria on this repository.\n>\n> To review a PR, create a feature branch and push it, or check available PRs with \`prlist\`.`;
@@ -204,18 +223,23 @@ async function handlePrCheckStatus(args: any): Promise<string> {
   const freshPr = await prisma.pullRequest.findUnique({ where: { id: pr.id } });
   if (!freshPr) return `> **No pull requests found** matching that criteria on this repository.`;
 
-  const findings = await prisma.reviewFinding.findMany({ where: { prId: pr.id }, orderBy: { line: "asc" } });
-  return formatFindings(freshPr, findings);
+  return formatLatestFindings(freshPr);
 }
 
 async function handlePrComments(args: any): Promise<string> {
   const pr = await resolvePrFromArgs(args);
   if (!pr) return `> **No pull requests found** matching that criteria on this repository.`;
-  const findings = await prisma.reviewFinding.findMany({ where: { prId: pr.id }, orderBy: { line: "asc" } });
-  if (findings.length === 0) return "No findings for this PR.";
+  const latest = await getLatestCompletedReview(pr.id);
+  if (!latest.reviewRun) return "No completed review for this PR.";
+  const findings = latest.findings;
+  if (findings.length === 0) return `No findings for this PR.${latest.rejectedCount > 0 ? ` Verifier filtered ${latest.rejectedCount}.` : ""}`;
   let out = `## Findings for PR ${pr.sourceBranch}\n\n`;
+  out += `_Reviewed commit ${latest.reviewRun.commitHash.slice(0, 7)}${latest.stale ? " (stale)" : ""}._\n\n`;
   for (const f of findings) {
     out += `- [${f.category}|${f.severity}] ${f.filename}:${f.line}\n  ${f.explanation}\n`;
+  }
+  if (latest.rejectedCount > 0) {
+    out += `\n_Verifier filtered ${latest.rejectedCount} finding${latest.rejectedCount === 1 ? "" : "s"}._\n`;
   }
   return out;
 }
@@ -344,11 +368,14 @@ async function handleLegacyCommand(body: any, defRepo: string | null) {
     if (cmdName.endsWith("prcomments") || cmdName.endsWith("comments")) {
       const pr = await resolvePr({ ...body, repoId: body.repoId || defRepo }, argVal);
       if (!pr) return NextResponse.json({ status: "Error", message: "> No PR found on this repository." });
-      const findings = await prisma.reviewFinding.findMany({ where: { prId: pr.id } });
+      const latest = await getLatestCompletedReview(pr.id);
       return NextResponse.json({
         status: "Success", type: "comments",
-        productionScore: pr.rating ? `${pr.rating}/10` : "Not Scanned Yet",
-        comments: findings.map((f: any) => `[${f.category} | ${f.severity}] ${f.filename}:${f.line} - ${f.explanation}`),
+        productionScore: latest.reviewRun?.rating != null ? `${latest.reviewRun.rating}/10` : "Not Scanned Yet",
+        reviewRun: latest.reviewRun,
+        stale: latest.stale,
+        rejectedCount: latest.rejectedCount,
+        comments: latest.findings.map((f: any) => `[${f.category} | ${f.severity}] ${f.filename}:${f.line} - ${f.explanation}`),
       });
     }
     if (cmdName.endsWith("prcheckstatus") || cmdName.endsWith("status")) {
@@ -362,13 +389,16 @@ async function handleLegacyCommand(body: any, defRepo: string | null) {
       }
       // Re-fetch so we pick up any rating update from the async runPrScan.
       const freshPr = await prisma.pullRequest.findUnique({ where: { id: pr.id } });
-      const findings = await prisma.reviewFinding.findMany({ where: { prId: pr.id } });
+      const latest = await getLatestCompletedReview(pr.id);
       return NextResponse.json({
-        status: freshPr?.rating != null ? "Success" : "Pending",
+        status: latest.reviewRun ? "Success" : (freshPr?.rating != null ? "Success" : "Pending"),
         type: "status",
-        productionScore: freshPr?.rating != null ? `${freshPr.rating}/10` : "Not scanned yet",
-        findingsCount: findings.length,
-        findings: findings.map((f: any) =>
+        productionScore: latest.reviewRun?.rating != null ? `${latest.reviewRun.rating}/10` : (freshPr?.rating != null ? `${freshPr.rating}/10` : "Not scanned yet"),
+        reviewRun: latest.reviewRun,
+        stale: latest.stale,
+        rejectedCount: latest.rejectedCount,
+        findingsCount: latest.findings.length,
+        findings: latest.findings.map((f: any) =>
           `[${f.category} | ${f.severity}] ${f.filename}:${f.line} - ${f.explanation}`,
         ),
       });

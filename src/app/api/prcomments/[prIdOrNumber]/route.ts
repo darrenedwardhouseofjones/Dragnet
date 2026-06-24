@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { findPrByIdOrNumber } from "@/src/lib/findPr";
 import { authenticateApiRequest } from "@/src/lib/apiAuth";
+import { getLatestCompletedReview } from "@/src/lib/reviewFreshness";
 
 export async function GET(req: Request, { params }: { params: Promise<{ prIdOrNumber: string }> }) {
   const auth = await authenticateApiRequest(req);
@@ -21,9 +22,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ prIdOrNu
       }, { status: 404 });
     }
 
-    const findings = await prisma.reviewFinding.findMany({ where: { prId: pr.id } });
-    const ratingInfo = pr.rating ? `${pr.rating}/10` : "Unrated";
-    const isProduction = pr.rating ? (pr.rating >= 8 ? "YES" : "NO") : "N/A";
+    const latest = await getLatestCompletedReview(pr.id);
+    const rating = latest.reviewRun?.rating ?? pr.rating;
+    const ratingInfo = rating != null ? `${rating}/10` : "Unrated";
+    const isProduction = rating != null ? (rating >= 8 ? "YES" : "NO") : "N/A";
 
     return NextResponse.json({
       status: "Success",
@@ -31,7 +33,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ prIdOrNu
       title: pr.title,
       productionScore: ratingInfo,
       productionGrade: isProduction,
-      comments: findings.map(f => ({
+      reviewRun: latest.reviewRun,
+      stale: latest.stale,
+      rejectedCount: latest.rejectedCount,
+      comments: latest.findings.map(f => ({
         id: f.id,
         category: f.category,
         severity: f.severity,

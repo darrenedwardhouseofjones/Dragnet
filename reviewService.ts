@@ -535,7 +535,9 @@ ${diffPayload}`;
 
   // 6. Persist findings
   console.log(`[scan] runPrScan: persisting ${findings.length} findings`);
-  await prisma.reviewFinding.deleteMany({ where: { prId } });
+  await prisma.reviewFinding.deleteMany({
+    where: reviewRunId ? { reviewRunId } : { prId, reviewRunId: null },
+  });
 
   // 6a. Run the verifier BEFORE persistence so verification status is
   // stored on each row. Assign candidate IDs up front so the verifier
@@ -583,10 +585,10 @@ ${diffPayload}`;
   }
 
   // 6b. Mark the ReviewRun complete with the final rating. Best-effort —
-  // completeReviewRun swallows errors so a status-write failure never
-  // masks the actual scan result.
+  // completeReviewRun swallows errors. Await it so callers that immediately
+  // refetch the latest completed run don't race the status write.
   if (reviewRunId) {
-    void completeReviewRun(reviewRunId, { status: "completed", rating });
+    await completeReviewRun(reviewRunId, { status: "completed", rating });
   }
 
   // 7. Update PR rating + status

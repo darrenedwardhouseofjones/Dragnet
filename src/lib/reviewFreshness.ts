@@ -35,6 +35,38 @@ export type ReviewFreshness =
   | { ok: true; runId: string; rating: number | null }
   | { ok: false; kind: "NO_RUN" | "STALE_RUN"; message: string };
 
+export interface LatestReviewResult {
+  reviewRun: {
+    id: string;
+    commitHash: string;
+    diffHash: string;
+    reviewConfigHash: string;
+    completedAt: Date | null;
+    rating: number | null;
+    model: string | null;
+    triggerReason: string | null;
+  } | null;
+  findings: Array<{
+    id: string;
+    prId: string;
+    reviewRunId: string | null;
+    repoId: string;
+    category: string;
+    severity: string;
+    filename: string;
+    line: number | null;
+    explanation: string;
+    diffSuggestion: string | null;
+    evidenceChain: string | null;
+    confidence: number | null;
+    verificationStatus: string | null;
+    verificationNote: string | null;
+    timestamp: string;
+  }>;
+  rejectedCount: number;
+  stale: boolean;
+}
+
 export interface ChatChainEntry {
   name: string;
   model: string;
@@ -209,4 +241,69 @@ export async function completeReviewRun(
       err,
     );
   }
+}
+
+/**
+ * Load the latest completed ReviewRun and its visible findings.
+ *
+ * This is the read-side single source of truth for "current report" style
+ * endpoints. It deliberately filters verifier-rejected findings and computes
+ * a lightweight stale flag against the currently persisted PrFile diffs.
+ */
+export async function getLatestCompletedReview(
+  prId: string,
+): Promise<LatestReviewResult> {
+  const latestRun = await prisma.reviewRun.findFirst({
+    where: { prId, status: "completed" },
+    orderBy: { completedAt: "desc" },
+    select: {
+      id: true,
+      commitHash: true,
+      diffHash: true,
+      reviewConfigHash: true,
+      completedAt: true,
+      rating: true,
+      model: true,
+      triggerReason: true,
+    },
+  });
+
+  if (!latestRun) {
+    return {
+      reviewRun: null,
+      findings: [],
+      rejectedCount: 0,
+      stale: false,
+    };
+  }
+
+  const prFiles = await prisma.prFile.findMany({
+    where: { prId },
+    select: { filename: true, diff: true },
+  });
+  const currentDiffHash = computeDiffHash(prFiles);
+  const stale = latestRun.diffHash !== "" && latestRun.diffHash !== currentDiffHash;
+
+  const [findings, rejectedCount] = await Promise.all([
+    prisma.reviewFinding.findMany({
+      where: {
+        reviewRunId: latestRun.id,
+        OR: [
+          { verificationStatus: null },
+          { verificationStatus: { not: "rejected" } },
+        ],
+      },
+      orderBy: { line: "asc" },
+    }),
+    prisma.reviewFinding.count({
+      where: { reviewRunId: latestRun.id, verificationStatus: "rejected" },
+    }),
+  ]);
+
+  return {
+    reviewRun: latestRun,
+    findings,
+    rejectedCount,
+    stale,
+  };
 }

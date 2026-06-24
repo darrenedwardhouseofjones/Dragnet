@@ -23,8 +23,26 @@
  *   set -a && source .env.local && set +a && node scripts/synthesize-legacy-review-runs.mjs
  */
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 
-const prisma = new PrismaClient();
+const cs = process.env.DATABASE_URL;
+if (!cs) {
+  console.error("[legacy-runs] DATABASE_URL not set");
+  process.exit(1);
+}
+const wantsStrictSsl = Boolean(cs.match(/sslmode\s*=\s*(verify-full|verify-ca)/i));
+const stripped = cs
+  .replace(/&?sslmode=[^&]*/gi, "")
+  .replace(/\?&/, "?")
+  .replace(/\?$/, "")
+  .replace(/&&/g, "&");
+const pool = new Pool({
+  connectionString: stripped,
+  ssl: wantsStrictSsl ? { rejectUnauthorized: true } : { rejectUnauthorized: false },
+});
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
   const findings = await prisma.reviewFinding.findMany({
