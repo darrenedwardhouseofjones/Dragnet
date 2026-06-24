@@ -28,3 +28,6 @@ data.db
 .greploop/
 .opencode/
 opencode.json
+
+# Tree-sitter grammars (regenerated from node_modules by postinstall)
+public/grammars/

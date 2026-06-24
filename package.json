@@ -13,7 +13,9 @@
     "lint": "tsc --noEmit",
     "greploop": "node scripts/greploop.mjs",
     "install-hooks": "bash scripts/install-hooks.sh",
-    "uninstall-hooks": "bash scripts/uninstall-hooks.sh"
+    "uninstall-hooks": "bash scripts/uninstall-hooks.sh",
+    "copy-grammars": "node scripts/copy-grammars.mjs",
+    "postinstall": "node scripts/copy-grammars.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
@@ -31,7 +33,9 @@
     "postcss": "^8.5.15",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "tailwind-merge": "^3.6.0"
+    "tailwind-merge": "^3.6.0",
+    "tree-sitter-typescript": "^0.23.2",
+    "web-tree-sitter": "^0.26.9"
   },
   "devDependencies": {
     "@prisma/config": "^7.8.0",
