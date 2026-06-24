@@ -1,0 +1,212 @@
+/**
+ * Review freshness gate — mirrors the discriminated-union shape of
+ * `assertIndexFresh` in `./indexFreshness.ts`.
+ *
+ * Two concepts:
+ *
+ * 1. **diffHash** — sha256 of the PR's current diff content (sorted by
+ *    filename). Stable across rebases and merge commits as long as the
+ *    actual changed code hasn't moved. Commit hashes change on every
+ *    rebase; diff hashes don't.
+ *
+ * 2. **reviewConfigHash** — sha256 of (chat-chain model IDs + system
+ *    prompt hash). If you swap models or edit the system prompt, this
+ *    hash changes and any prior review is treated as stale.
+ *
+ * A completed ReviewRun is reusable (cache hit) only when its
+ * (commitHash, diffHash, reviewConfigHash) all match the current values.
+ *
+ * Fail-open: hash computation never throws — malformed input returns a
+ * sentinel empty string, which never matches a stored hash, so the scan
+ * proceeds.
+ */
+
+import crypto from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { prisma } from "./prisma";
+
+/** Minimal shape of what refreshPrFiles returns. Avoids a circular import. */
+export interface DiffHashInput {
+  filename: string;
+  diff?: string | null;
+}
+
+export type ReviewFreshness =
+  | { ok: true; runId: string; rating: number | null }
+  | { ok: false; kind: "NO_RUN" | "STALE_RUN"; message: string };
+
+export interface ChatChainEntry {
+  name: string;
+  model: string;
+}
+
+/**
+ * Hash a PR's diff content. Filters to files with non-empty diff,
+ * sorts by filename for stability, concatenates with a separator,
+ * sha256, first 16 hex chars.
+ *
+ * Returns "" on empty input (no files / no diffs) — callers should
+ * treat this as "can't compute, don't cache" since it will never
+ * match a stored hash.
+ */
+export function computeDiffHash(files: DiffHashInput[]): string {
+  const withDiff = files
+    .filter((f) => f.diff && f.diff.trim().length > 0)
+    .sort((a, b) => (a.filename < b.filename ? -1 : a.filename > b.filename ? 1 : 0));
+
+  if (withDiff.length === 0) return "";
+
+  const seed = withDiff
+    .map((f) => `--- ${f.filename} ---\n${f.diff!.trim()}`)
+    .join("\n\n");
+
+  return crypto.createHash("sha256").update(seed).digest("hex").slice(0, 16);
+}
+
+/**
+ * Hash the review configuration. Captures which LLM(s) and prompt
+ * produced a review. If you swap models or change the prompt, the hash
+ * changes and the cache invalidates.
+ *
+ * `systemPromptHash` is computed once per reviewService run and passed
+ * in — reviewFreshness.ts doesn't need to know how the prompt is built.
+ */
+export function computeReviewConfigHash(
+  chatChain: ChatChainEntry[],
+  systemPromptHash: string,
+): string {
+  const models = chatChain.map((c) => c.model).filter(Boolean).join(",");
+  const seed = `${models}|${systemPromptHash}`;
+  return crypto.createHash("sha256").update(seed).digest("hex").slice(0, 16);
+}
+
+/**
+ * Short sha256 of an arbitrary string — used by callers (e.g. the scan
+ * route) to hash the system prompt without depending on a particular
+ * hash helper existing elsewhere.
+ */
+export function shortHash(input: string): string {
+  return crypto.createHash("sha256").update(input).digest("hex").slice(0, 16);
+}
+
+/**
+ * Returns the latest completed ReviewRun for the given PR if its
+ * (commitHash, diffHash, reviewConfigHash) all match the current
+ * values. Otherwise returns a STALE_RUN or NO_RUN signal.
+ *
+ * Empty input hashes (from fail-open computeDiffHash) never match —
+ * treated as STALE_RUN so the scan proceeds.
+ */
+export async function assertReviewFreshness(
+  pr: { id: string; commitHash: string },
+  currentDiffHash: string,
+  currentConfigHash: string,
+): Promise<ReviewFreshness> {
+  const latest = await prisma.reviewRun.findFirst({
+    where: { prId: pr.id, status: "completed" },
+    orderBy: { completedAt: "desc" },
+    select: {
+      id: true,
+      commitHash: true,
+      diffHash: true,
+      reviewConfigHash: true,
+      rating: true,
+    },
+  });
+
+  if (!latest) {
+    return {
+      ok: false,
+      kind: "NO_RUN",
+      message: "No completed review run for this PR yet.",
+    };
+  }
+
+  const matches =
+    latest.commitHash === pr.commitHash &&
+    latest.diffHash === currentDiffHash &&
+    latest.reviewConfigHash === currentConfigHash &&
+    currentDiffHash !== ""; // empty hash = can't verify, don't cache
+
+  if (matches) {
+    return { ok: true, runId: latest.id, rating: latest.rating };
+  }
+
+  return {
+    ok: false,
+    kind: "STALE_RUN",
+    message:
+      `Prior review run was for commit ${latest.commitHash.slice(0, 7)} ` +
+      `(diffHash ${latest.diffHash.slice(0, 8) || "(unknown)"}). ` +
+      `Current state: commit ${pr.commitHash.slice(0, 7)}, diffHash ${currentDiffHash.slice(0, 8) || "(unknown)"}.`,
+  };
+}
+
+/**
+ * Create a new in_progress ReviewRun. Returns the run ID.
+ *
+ * `triggerReason` should describe what started the scan — "manual" for
+ * the dashboard button, "prepush" for the git hook, "prcheck" for the
+ * CLI/skill, "webhook" for inbound webhook-triggered scans.
+ */
+export async function createReviewRun(opts: {
+  prId: string;
+  repoId: string;
+  commitHash: string;
+  diffHash: string;
+  reviewConfigHash: string;
+  model?: string | null;
+  triggerReason?: string;
+  forced?: boolean;
+}): Promise<string> {
+  const id = `run-${randomUUID()}`;
+  await prisma.reviewRun.create({
+    data: {
+      id,
+      prId: opts.prId,
+      repoId: opts.repoId,
+      commitHash: opts.commitHash,
+      diffHash: opts.diffHash,
+      reviewConfigHash: opts.reviewConfigHash,
+      status: "in_progress",
+      startedAt: new Date(),
+      completedAt: null,
+      model: opts.model ?? null,
+      rating: null,
+      triggerReason: opts.triggerReason ?? "manual",
+      forced: opts.forced ?? false,
+    },
+  });
+  return id;
+}
+
+/**
+ * Mark a ReviewRun as completed or failed. Called by runPrScan on
+ * success, and by the scan route's catch block on failure.
+ *
+ * Never throws — if the update fails (e.g. row was already deleted by
+ * a concurrent operation), log and move on. The scan result itself
+ * is what matters.
+ */
+export async function completeReviewRun(
+  runId: string,
+  outcome:
+    | { status: "completed"; rating: number | null }
+    | { status: "failed" },
+): Promise<void> {
+  try {
+    await prisma.reviewRun.update({
+      where: { id: runId },
+      data: {
+        status: outcome.status,
+        completedAt: new Date(),
+        ...(outcome.status === "completed" ? { rating: outcome.rating } : {}),
+      },
+    });
+  } catch (err) {
+    console.warn(
+      `[reviewFreshness] failed to mark run ${runId} as ${outcome.status}:`,
+      err,
+    );
+  }
+}
