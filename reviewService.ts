@@ -421,9 +421,12 @@ ${diffPayload}`;
               tools,
               tool_choice: "auto",
               temperature: 0.2,
-              // 4096 is the maximum output tokens for GPT-4o and many other models.
-              // Exceeding this causes immediate 400 errors from OpenRouter.
-              max_tokens: 4096,
+              // Reasoning models (MiniMax-M3, qwen-plus, etc.) spend a large
+              // fraction of their output budget on <think> blocks before they
+              // emit tool_calls. 4096 was too small — M3 on a 146-file diff
+              // exhausted the budget mid-reasoning and broke out of the loop
+              // with tool_calls=false.
+              max_tokens: 16_384,
             }),
             `${name} chat completion`,
           );
@@ -586,7 +589,7 @@ ${diffPayload}`;
                 model,
                 messages: finalizerMessages,
                 temperature: 0.1,
-                max_tokens: 4096,
+                max_tokens: 16_384,
                 response_format: { type: "json_object" },
               } as any),
               `${name} JSON finalizer`,
@@ -599,7 +602,7 @@ ${diffPayload}`;
                 model,
                 messages: finalizerMessages,
                 temperature: 0.1,
-                max_tokens: 4096,
+                max_tokens: 16_384,
               }),
               `${name} fallback finalizer`,
             );
