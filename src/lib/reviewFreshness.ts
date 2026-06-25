@@ -71,6 +71,7 @@ export interface LatestReviewResult {
     confidence: number | null;
     verificationStatus: string | null;
     verificationNote: string | null;
+    source: string | null;
     timestamp: string;
   }>;
   rejectedCount: number;
@@ -82,6 +83,7 @@ export interface LatestReviewResult {
     category: string;
     explanation: string;
     verificationNote: string | null;
+    source: string | null;
   }>;
   stale: boolean;
 }
@@ -346,7 +348,7 @@ export async function getLatestCompletedReview(
       orderBy: { line: "asc" },
       select: {
         id: true, filename: true, line: true, severity: true, category: true,
-        explanation: true, verificationNote: true,
+        explanation: true, verificationNote: true, source: true,
       },
     }),
   ]);

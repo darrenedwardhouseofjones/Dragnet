@@ -148,6 +148,7 @@ model ReviewFinding {
   confidence         Float?
   verificationStatus String?
   verificationNote   String?
+  source             String?
   timestamp          String
   pullRequest        PullRequest @relation(fields: [prId], references: [id], onDelete: Cascade)
   reviewRun          ReviewRun?  @relation(fields: [reviewRunId], references: [id], onDelete: Cascade)

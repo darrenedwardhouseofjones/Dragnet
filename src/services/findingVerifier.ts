@@ -60,6 +60,7 @@ export interface CandidateFinding {
   filename: string;
   line?: number | null;
   explanation: string;
+  source?: string | null;
 }
 
 export interface VerificationResult {

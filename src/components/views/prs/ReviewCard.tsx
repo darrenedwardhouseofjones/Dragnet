@@ -251,6 +251,18 @@ export default function ReviewCard({ activePR, findings, reviewRun, rejectedCoun
                             <span className="text-[10px] font-mono text-cyan-400 bg-cyan-400/5 px-1.5 rounded font-bold uppercase tracking-wider">
                               {finding.category}
                             </span>
+                            {finding.source && finding.source !== "llm" && (
+                              <span
+                                title={`Found by ${finding.source} (deterministic check) — not the LLM`}
+                                className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded font-bold border ${
+                                  finding.source === "tsc"
+                                    ? "bg-blue-500/10 text-blue-400 border-blue-500/25"
+                                    : "bg-purple-500/10 text-purple-400 border-purple-500/25"
+                                }`}
+                              >
+                                {finding.source}
+                              </span>
+                            )}
                             <span className="text-xs font-semibold text-white tracking-tight">{finding.filename}</span>
                             {finding.verificationStatus === "downgraded" && (
                               <span

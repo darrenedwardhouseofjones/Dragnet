@@ -5,6 +5,7 @@ import { getChatChain } from "./src/lib/llmClient";
 import { randomUUID } from "node:crypto";
 import { verifyFindings, isDocumentationFile, type CandidateFinding } from "./src/services/findingVerifier";
 import { completeReviewRun } from "./src/lib/reviewFreshness";
+import { runDeterministicChecks, type DeterministicFinding } from "./src/services/deterministicChecks";
 
 export interface ScanResult {
   success: boolean;
@@ -412,6 +413,36 @@ export async function runPrScan(prId: string, preloadedFiles?: any[], reviewRunI
   const diffPayload = codePayload +
     (contextPayload ? `\n\n=== CONTEXT FILES (NOT REVIEWABLE — DO NOT CITE IN FINDINGS) ===\n${contextPayload}\n` : "");
 
+  // 5a. Run deterministic checks (tsc/eslint) BEFORE the LLM loop.
+  //     Findings persist with source="tsc"/"eslint" so the UI distinguishes
+  //     them from LLM findings, AND feed the LLM context so it doesn't
+  //     waste iterations re-reporting type errors it can see are already
+  //     flagged. Never throws — failures become severity:info findings.
+  let deterministicFindings: DeterministicFinding[] = [];
+  if (repo?.path) {
+    try {
+      deterministicFindings = await runDeterministicChecks(repo.path);
+      const counts = deterministicFindings.reduce((acc, f) => {
+        acc[f.source] = (acc[f.source] ?? 0) + 1; return acc;
+      }, {} as Record<string, number>);
+      const summary = Object.keys(counts).length === 0
+        ? "clean (no tsc/eslint findings)"
+        : Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(", ");
+      void logReview(prId, `Deterministic checks: ${summary}`, "info", reviewRunId);
+      console.log(`[scan] runPrScan: deterministic checks → ${deterministicFindings.length} finding(s)`);
+    } catch (err: any) {
+      console.warn(`[scan] runPrScan: deterministic checks crashed:`, err);
+      void logReview(prId, `Deterministic checks crashed: ${err.message}`, "warn", reviewRunId);
+    }
+  }
+
+  const deterministicPayload = deterministicFindings.length > 0
+    ? `\n\n=== DETERMINISTIC CHECK RESULTS (already known — do NOT re-report these) ===\n` +
+      deterministicFindings.map(f =>
+        `- ${f.source}: ${f.filename}${f.line ? `:${f.line}` : ""} [${f.severity}] ${f.explanation}`
+      ).join("\n")
+    : "";
+
   // 6. Run agentic review loop, iterating providers in the chain.
   //    Primary first, then fallback if configured. If every provider
   //    fails or all loops end without a submitReview, we surface an
@@ -440,7 +471,7 @@ Description: ${pr.description || ""}
 
 ${codebaseContext ? `=== PRE-FETCHED AST SYMBOLS & CALL-GRAPH LINKAGES ===\n${codebaseContext}\n` : ""}
 === CHANGED FILES & CONTEXT ===
-${diffPayload}`;
+${diffPayload}${deterministicPayload}`;
 
         const messages: any[] = [
           { role: "system", content: SYSTEM_INSTRUCTION },
@@ -697,10 +728,13 @@ ${diffPayload}`;
     if (finalReview) {
       // Clamp severity/category to the known enums so both the returned and
       // persisted findings render (and their counts match the UI header).
+      // LLM findings get source: "llm" (default); deterministic findings
+      // are merged in below with their own source already set.
       findings = (finalReview.findings || []).map((f: any) => ({
         ...f,
         category: VALID_CATEGORIES.includes(f?.category) ? f.category : "Style",
         severity: VALID_SEVERITIES.includes(f?.severity) ? f.severity : "suggestion",
+        source: "llm",
       }));
       // `?? 5` (not `|| 5`) so a genuine returned 0 is preserved and clamped
       // to 1 below, rather than being masked into a middling 5.
@@ -716,6 +750,11 @@ ${diffPayload}`;
     throw new Error(systemWarn || "The review model did not return a structured rating/findings result.");
   }
   await assertReviewRunStillActive(reviewRunId);
+
+  // Merge deterministic findings (tsc/eslint) with the LLM findings so
+  // they're persisted together and visible in one list. Deterministic
+  // findings are NOT factored into the LLM's rating — they're additive.
+  findings = [...findings, ...deterministicFindings];
 
   // 6. Persist findings
   console.log(`[scan] runPrScan: persisting ${findings.length} findings`);
@@ -734,6 +773,7 @@ ${diffPayload}`;
     filename: finding.filename || "<unattributed>",
     line: finding.line || null,
     explanation: finding.explanation || "",
+    source: finding.source ?? "llm",
   }));
   const verification = repo?.path
     ? await verifyFindings(candidates, repo.path, prId)
@@ -769,6 +809,7 @@ ${diffPayload}`;
       confidence: finding.confidence != null ? finding.confidence : null,
       verificationStatus: v?.status ?? null,
       verificationNote: v?.note ?? null,
+      source: finding.source ?? null,
       timestamp: new Date().toISOString(),
     };
   });

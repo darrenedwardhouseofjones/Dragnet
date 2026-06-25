@@ -67,6 +67,7 @@ export interface ReviewFinding {
   timestamp: string;
   verificationStatus?: "verified" | "downgraded" | "rejected" | "unverified" | null;
   verificationNote?: string | null;
+  source?: string | null;
 }
 
 export interface ActivityLog {
