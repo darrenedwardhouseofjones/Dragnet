@@ -139,14 +139,25 @@ async function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
   }
 }
 
-function normalizeFinalReview(candidate: any): any | null {
+function normalizeFinalReview(candidate: any): {
+  rating: number;
+  summary: string;
+  findings: any[];
+  droppedFilenamelessCount: number;
+} | null {
   if (!candidate || typeof candidate !== "object") return null;
   if (typeof candidate.rating !== "number") return null;
   if (!Array.isArray(candidate.findings)) return null;
+  const before = candidate.findings.length;
+  const filtered = candidate.findings.filter((f: any) => {
+    const fn = (f?.filename ?? "").trim();
+    return fn !== "" && fn !== "<unattributed>";
+  });
   return {
     rating: candidate.rating,
     summary: typeof candidate.summary === "string" ? candidate.summary : "",
-    findings: candidate.findings,
+    findings: filtered,
+    droppedFilenamelessCount: before - filtered.length,
   };
 }
 
@@ -500,6 +511,10 @@ ${diffPayload}`;
                   `[review] submitReview received: rating=${normalized.rating} findings=${normalized.findings?.length ?? 0} provider=${name}`,
                 );
                 void logReview(prId, `submitReview: rating=${normalized.rating}, ${normalized.findings?.length ?? 0} findings`, "info", reviewRunId);
+                if (normalized.droppedFilenamelessCount > 0) {
+                  console.log(`[review] dropped ${normalized.droppedFilenamelessCount} filename-less findings pre-verifier provider=${name}`);
+                  void logReview(prId, `Pre-verifier filter: dropped ${normalized.droppedFilenamelessCount} findings with no filename`, "warn", reviewRunId);
+                }
                 finalReview = normalized;
                 break;
               }
@@ -591,6 +606,10 @@ ${diffPayload}`;
               console.log(
                 `[review] parsed JSON finalReview without submitReview: rating=${parsed.rating} findings=${parsed.findings.length} provider=${name}`,
               );
+              if (parsed.droppedFilenamelessCount > 0) {
+                console.log(`[review] dropped ${parsed.droppedFilenamelessCount} filename-less findings pre-verifier provider=${name}`);
+                void logReview(prId, `Pre-verifier filter: dropped ${parsed.droppedFilenamelessCount} findings with no filename`, "warn", reviewRunId);
+              }
               finalReview = parsed;
             }
             break;
@@ -646,6 +665,10 @@ ${diffPayload}`;
               `[review] JSON-only finalReview received: rating=${parsed.rating} findings=${parsed.findings.length} provider=${name}`,
             );
             void logReview(prId, `JSON finalReview: rating=${parsed.rating}, ${parsed.findings.length} findings`, "info", reviewRunId);
+            if (parsed.droppedFilenamelessCount > 0) {
+              console.log(`[review] dropped ${parsed.droppedFilenamelessCount} filename-less findings pre-verifier provider=${name}`);
+              void logReview(prId, `Pre-verifier filter: dropped ${parsed.droppedFilenamelessCount} findings with no filename`, "warn", reviewRunId);
+            }
             finalReview = parsed;
           }
         }

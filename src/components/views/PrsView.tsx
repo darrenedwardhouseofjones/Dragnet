@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { motion } from "motion/react";
 import {
   AlertTriangle,
@@ -105,21 +106,26 @@ export default function PrsView({
           onIndexComplete={onIndexComplete}
         />
 
+        <SectionLabel>Scan Logs</SectionLabel>
         <ReviewProgress prId={activePR?.id} reviewRunId={reviewRun?.id} isScanning={isScanning} />
 
         {activePR && (
-          <ReviewCard
-            activePR={activePR}
-            findings={findings}
-            reviewRun={reviewRun}
-            rejectedCount={rejectedCount}
-            rejectedFindings={rejectedFindings}
-            stale={stale}
-            onCopySuggestion={onCopySuggestion}
-            copyFeedback={copyFeedback}
-          />
+          <>
+            <SectionLabel>Scan Results</SectionLabel>
+            <ReviewCard
+              activePR={activePR}
+              findings={findings}
+              reviewRun={reviewRun}
+              rejectedCount={rejectedCount}
+              rejectedFindings={rejectedFindings}
+              stale={stale}
+              onCopySuggestion={onCopySuggestion}
+              copyFeedback={copyFeedback}
+            />
+          </>
         )}
 
+        <SectionLabel>Scan History</SectionLabel>
         <ScanHistory prId={activePR?.id} currentRunId={reviewRun?.id} />
       </div>
 
@@ -281,6 +287,14 @@ function PrHeader({
         </div>
       </div>
     </div>
+  );
+}
+
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <h4 className="text-[10px] font-mono font-extrabold text-slate-500 uppercase tracking-[0.2em] mt-2">
+      {children}
+    </h4>
   );
 }
 
