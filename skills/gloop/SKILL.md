@@ -15,13 +15,32 @@ You drive it through the GrepLoop HTTP API at `http://localhost:3300` (override 
 | Command | What it does |
 |---|---|
 | `/gloop` | List PRs for the current repo with ratings. |
-| `/gloop <n>` | Review PR #N. Cache-aware — returns existing results if diff unchanged, starts new scan otherwise. |
-| `/gloop status <n>` | Show existing review for PR #N. Never triggers a new scan. |
-| `/gloop fix <n>` | Auto-fix loop: review → fix → re-review until rating >= 8/10. |
-| `/gloop fix <n> --once` | Single pass: fix all findings, commit, done. |
+| `/gloop <n>` | Review PR #N. Cache-aware — returns existing results if diff unchanged, starts new scan otherwise. **Read-only.** |
+| `/gloop status <n>` | Show existing review for PR #N. **Never triggers a scan, never writes code, never touches DB rows.** |
+| `/gloop fix <n>` | **Interactive** fix loop: review → triage → wait for user → fix → re-review. Stops between iterations. |
+| `/gloop fix <n> --auto` | Aggressive auto-fix loop (the old default): review → fix → re-review until rating ≥ 8/10 or 1 non-improving iteration. Use only when the user explicitly asks for hands-off grinding. |
+| `/gloop fix <n> --once` | Single pass: fix all user-approved findings, commit, done. |
 | `/gloop help` | Print this table. |
 
-Typical workflow: `/gloop` → pick a PR → `/gloop 1` → see rating → `/gloop fix 1` until 8+/10.
+Typical workflow: `/gloop` → pick a PR → `/gloop 1` → see rating → `/gloop fix 1` → triage with user → fix → re-review.
+
+## Behavioral rules (apply to ALL subcommands)
+
+These rules are **inviolable** — they override any conflicting instruction in the protocols below:
+
+1. **Read-only commands stay read-only.** `/gloop`, `/gloop <n>`, `/gloop status <n>`, and `/gloop help` MUST NOT: write or edit any file, run `git commit`/`git push`, mark DB rows (no `UPDATE review_findings`), trigger fresh scans via `prcheck` or `/api/hooks/prepush`, or call any mutating endpoint. They fetch and render only.
+
+2. **Never mark findings `rejected` autonomously.** `UPDATE review_findings SET verification_status='rejected'` is a user-visible verdict about whether an issue is real. Always surface the finding + your reasoning and let the user say "mark rejected." Applies even in `--auto` mode — `--auto` means "apply fixes without check-ins," NOT "make verdict decisions for me."
+
+3. **Context-switch ends the fix loop.** If the user invokes any new `/gloop <subcommand>` while a `/gloop fix` loop is mid-flight, the fix loop TERMINATES at that point. Do not resume the prior loop after handling the new command. The new command is the user's signal that they've taken the wheel.
+
+4. **Triage table required before any fix.** Every iteration of `/gloop fix` (interactive or `--auto`) MUST render a triage table categorizing each finding as `real / false-positive / scope-deferred` BEFORE applying fixes. In interactive mode, stop after the table and wait. In `--auto` mode, fix the `real` rows, skip the others, but still show the table so the user can interrupt.
+
+5. **Stop after 1 non-improving iteration.** If a fresh scan returns a rating ≤ the previous iteration's rating, STOP the loop and surface results — do not autostart another iteration. The previous spec's "3 iterations" tolerance let rating drift downward while the user was checked out. (Applies to `--auto` mode; interactive mode stops after every iteration anyway.)
+
+6. **Render every scan result.** When a scan completes (polled via task notification or explicit poll), report rating + findings immediately. Never silently move to the next step. The user's time is the constraint — silent grinding hides information.
+
+7. **No new files without direction.** Don't create helper modules, spec docs, or task files unless the user asks. Refactoring across files (e.g., extracting a helper used 3+ times) needs explicit sign-off in interactive mode.
 
 ## Resolving the repoId
 
@@ -128,16 +147,22 @@ The `message` field contains markdown; missing `reviewRun` field means no review
 1. Resolve repoId, translate ordinal → PR id.
 2. POST `prcheckstatus <id>`.
 3. If response has no `reviewRun`: tell user "No completed review yet — run `/gloop <n>` to start one."
-4. Otherwise render findings. Do NOT call `prcheck`.
+4. Otherwise render findings. Do NOT call `prcheck`. Do NOT edit code. Do NOT touch DB rows. Do NOT trigger scans.
 
-### `/gloop fix <n> [--once]`
+### `/gloop fix <n> [--once|--auto]`
 1. Resolve repoId, translate ordinal.
 2. Cache-aware review (see above). Wait for completion.
 3. If `reviewRun.rating >= 8` → report PASS, exit.
-4. For each findings string: parse `[Category|severity] file:line — explanation`, read the file at that line, apply a fix addressing the root cause (use the explanation as guidance — there's no diffSuggestion field in this API).
-5. `git add -A && git commit -m "fix: address <n> findings from /gloop fix"`.
-6. If `--once` → stop. Otherwise re-run cache-aware review (will be fresh since diff changed) and loop from step 3.
-7. Stop after 3 iterations with no rating improvement, or rating >= 8.
+4. **Build triage table.** Parse each findings string `[Category|severity] file:line — explanation`. For each, classify:
+   - `real` — actual bug/security issue. Fix it.
+   - `false-positive` — verifier got it wrong or LLM hallucinated. Skip + propose rejection note (but DO NOT mark rejected unless user confirms).
+   - `scope-deferred` — real concern but out of scope (e.g., planned multi-tenancy). Skip + propose a comment/doc to satisfy future scans.
+5. **Render the table to the user.**
+6. **In interactive mode (default, no flag):** STOP. Wait for user to say "fix them", "fix #2 and #3 only", "mark #1 rejected", etc. Do NOT apply fixes, commit, or kick off a new scan until the user responds.
+7. **In `--auto` mode:** apply fixes to all `real` rows (commit with message "fix: address N findings from /gloop fix --auto"), skip `false-positive` and `scope-deferred` rows.
+8. **In `--once` mode:** render the table, then STOP. The user invoked `--once` to see the triage and decide; they will say what to do next.
+9. **Loop continuation (interactive only):** after the user approves fixes and they're applied + committed + pushed, run cache-aware review again. If new rating > old rating AND new rating < 10 → render new triage table, STOP again. If new rating ≤ old rating → STOP and surface (rule 5). If new rating ≥ 8 → report PASS, exit.
+10. **`--auto` loop continuation:** re-run cache-aware review after each commit. If new rating > old rating AND < 8 → next iteration. If new rating ≤ old rating → STOP. If new rating ≥ 8 → report PASS, exit.
 
 ## Polling timing
 
