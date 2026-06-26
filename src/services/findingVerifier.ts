@@ -51,6 +51,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { prisma } from "@/src/lib/prisma";
+import { resolveSafePath } from "@/src/lib/pathSafety";
 import { getChatClient, getChatModel } from "@/src/lib/llmClient";
 
 export interface CandidateFinding {
@@ -261,9 +262,15 @@ function loadFileContent(
   // v1: disk read only. PrFile-table fallback (for files deleted in
   // working tree but still in the diff) deferred to a follow-on — the
   // vast majority of findings cite files that still exist on disk.
-  const onDisk = path.join(repoPath, filename);
+  //
+  // filename is LLM-cited via submitReview — untrusted. Path traversal
+  // defense via resolveSafePath (absolute path, .., and symlink escape).
+  // Without this, an attacker-controlled LLM (prompt injection via PR
+  // diff) could read /etc/passwd by submitting it as the filename.
+  const safe = resolveSafePath(repoPath, filename);
+  if (!safe) return null;
   try {
-    return fs.readFileSync(onDisk, "utf-8");
+    return fs.readFileSync(safe, "utf-8");
   } catch {
     return null;
   }

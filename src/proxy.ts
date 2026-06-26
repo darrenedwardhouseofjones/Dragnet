@@ -5,10 +5,17 @@ import { getSessionCookie } from "better-auth/cookies";
  * Next.js 16 network-boundary gate (the renamed `middleware` convention —
  * Vercel PR #84119). Requires a Better Auth session for the JSON API.
  *
- * This is a lightweight cookie-PRESENCE check only — it never touches the
- * database (Prisma is Node-only and can't run at the network boundary).
- * Full DB-backed validation stays in the Node route handlers via
- * `requireSession()` on the secret-handling routes.
+ * WARNING: this is a lightweight cookie-PRESENCE check only —
+ * `getSessionCookie` does NOT verify the cookie signature at the network
+ * boundary (Prisma is Node-only and can't run here). Any request with a
+ * cookie header shaped like `better-auth.session=...` passes. This is
+ * a coarse DOS / drive-by filter, NOT real authentication.
+ *
+ * Real authentication is enforced at each route handler via
+ * `authenticateSessionOrKey(req)` — which performs DB-backed validation
+ * of either a session cookie (Better Auth verifies against the sessions
+ * table) or a Bearer API key (SHA-256 hash lookup in api_keys). Routes
+ * that forget this call are effectively unauthenticated.
  *
  * The matcher deliberately excludes endpoints that authenticate by other
  * means, so they must NOT be gated by a browser session cookie:

@@ -5,6 +5,7 @@ import { getChatChain } from "./src/lib/llmClient";
 import { randomUUID } from "node:crypto";
 import { verifyFindings, isDocumentationFile, type CandidateFinding } from "./src/services/findingVerifier";
 import { completeReviewRun } from "./src/lib/reviewFreshness";
+import { resolveSafePath } from "./src/lib/pathSafety";
 import { runDeterministicChecks, type DeterministicFinding } from "./src/services/deterministicChecks";
 
 export interface ScanResult {
@@ -659,34 +660,11 @@ ${diffPayload}${deterministicPayload}`;
                   if (repo) {
                     const repoPath = repo.localPath || repo.path;
                     if (repoPath) {
-                      const resolvedRepoPath = path.resolve(repoPath);
-                      const absolutePath = path.resolve(resolvedRepoPath, fnArgs.filePath);
-                      // Path-traversal defense: use path.relative + path.sep
-                      // boundary, NOT startsWith. startsWith("/home/u/myrepo")
-                      // also matches "/home/u/myrepo-secrets/..." — escapes
-                      // sandbox via a sibling directory sharing the prefix.
-                      // The codebase's own findingVerifier.ts uses this
-                      // exact pattern; mirror it here.
-                      const rel = path.relative(resolvedRepoPath, absolutePath);
-                      const escapes = rel.startsWith("..") || path.isAbsolute(rel);
-                      // Symlink defense: resolve the real path AFTER the
-                      // relative-check (which uses the lexical path). A
-                      // symlink inside the repo pointing outside would
-                      // pass the rel check but escape on realpath.
-                      let realPath: string | null = null;
-                      if (!escapes) {
-                        try {
-                          realPath = fs.realpathSync(absolutePath);
-                          const realRepo = fs.realpathSync(resolvedRepoPath);
-                          const realRel = path.relative(realRepo, realPath);
-                          if (realRel.startsWith("..") || path.isAbsolute(realRel)) {
-                            realPath = null;
-                          }
-                        } catch {
-                          realPath = null; // ENOENT etc — handled below
-                        }
-                      }
-                      if (escapes || realPath === null) {
+                      // Path-traversal + symlink-escape defense. Centralized
+                      // in pathSafety.ts so readFile, startBackgroundEnrichment,
+                      // and loadFileContent all share the same semantics.
+                      const realPath = resolveSafePath(repoPath, fnArgs.filePath);
+                      if (realPath === null) {
                         toolResult = "Error: Path traversal detected. Access to paths outside the repository is strictly forbidden.";
                       } else if (fs.existsSync(realPath)) {
                         // Cumulative-context budget: refuse reads once the

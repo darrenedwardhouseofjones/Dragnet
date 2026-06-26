@@ -6,6 +6,7 @@ import { assertIndexFresh } from "@/src/lib/indexFreshness";
 import { IndexingService } from "@/src/services/indexingService";
 import { getChatChain, getEmbeddingChain } from "@/src/lib/llmClient";
 import { acquireReviewLock, endReview } from "@/src/lib/reviewLocks";
+import { authenticateSessionOrKey } from "@/src/lib/apiAuth";
 import {
   computeDiffHash,
   computeReviewConfigHash,
@@ -16,6 +17,10 @@ import {
 } from "@/src/lib/reviewFreshness";
 
 export async function POST(req: Request, { params }: { params: Promise<{ prId: string }> }) {
+  // Route-level auth: this is the UI scan trigger (the API-key path is
+  // /api/command via the /gloop skill). proxy.ts is cookie-PRESENCE only.
+  const auth = await authenticateSessionOrKey(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: 401 });
   const { prId } = await params;
   await req.json().catch(() => ({}));
   console.log(`[scan] route: POST received for prId=${prId}`);

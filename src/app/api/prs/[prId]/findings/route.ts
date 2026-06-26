@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getLatestCompletedReview } from "@/src/lib/reviewFreshness";
+import { authenticateSessionOrKey } from "@/src/lib/apiAuth";
 
 /**
  * GET /api/prs/[prId]/findings
@@ -17,7 +18,11 @@ import { getLatestCompletedReview } from "@/src/lib/reviewFreshness";
  * If no completed run exists, returns an empty findings list with
  * `reviewRun: null` so the UI can render the "no review yet" state.
  */
-export async function GET(_req: Request, { params }: { params: Promise<{ prId: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ prId: string }> }) {
+  // Route-level auth: findings expose review content for the PR. proxy.ts
+  // only checks cookie PRESENCE — validate the session against the DB.
+  const auth = await authenticateSessionOrKey(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: 401 });
   try {
     const { prId } = await params;
 

@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
+import { authenticateSessionOrKey } from "@/src/lib/apiAuth";
 
-export async function GET() {
+export async function GET(req: Request) {
+  // Route-level auth: review history is private to the operator. proxy.ts
+  // only checks cookie PRESENCE — validate the session against the DB.
+  const auth = await authenticateSessionOrKey(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: 401 });
   try {
     const reviews = await prisma.reviewHistory.findMany({
       orderBy: { timestamp: 'desc' },
@@ -15,6 +20,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  // Route-level auth: same reason as GET — review logging is operator-only.
+  const auth = await authenticateSessionOrKey(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: 401 });
   try {
     const body = await req.json();
     const { id, repoId, repoName, branch, commitHash, triggerReason, status } = body;

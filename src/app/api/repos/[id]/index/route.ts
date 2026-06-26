@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { IndexingService } from "@/src/services/indexingService";
+import { authenticateSessionOrKey } from "@/src/lib/apiAuth";
 
 export const runtime = "nodejs";
 
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  // Route-level auth: proxy.ts only checks cookie PRESENCE. Without this,
+  // any client with a fake cookie header could trigger expensive indexing
+  // (CPU, disk I/O, embedding LLM calls) for DoS / cost amplification.
+  const auth = await authenticateSessionOrKey(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: 401 });
   try {
     const { id } = await params;
     const repo = await prisma.repository.findUnique({ where: { id } });

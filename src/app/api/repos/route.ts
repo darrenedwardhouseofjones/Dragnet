@@ -47,6 +47,12 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  // Auth at the route level — the proxy.ts middleware is cookie-PRESENCE
+  // only (Better Auth's getSessionCookie does not verify the signature in
+  // the network boundary). Without this check, any request with a cookie
+  // header (even a fake one) could register repos / trigger git clones.
+  const auth = await authenticateSessionOrKey(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: 401 });
   try {
     const body = await req.json();
     const {
