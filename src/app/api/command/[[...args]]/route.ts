@@ -425,10 +425,17 @@ async function handleLegacyCommand(body: any, defRepo: string | null) {
       }
       const freshness = assertIndexFresh(repo);
       if (freshness.ok === false) {
-        return NextResponse.json({
-          status: "Error",
-          message: `> ⚠ **${freshness.kind === "INDEX_REQUIRED" ? "Index required" : "Stale index"}.** ${freshness.message}`,
-        });
+        if (freshness.kind === "INDEX_REQUIRED") {
+          return NextResponse.json({
+            status: "Error",
+            message: `> ⚠ **Index required.** ${freshness.message}`,
+          });
+        }
+        // STALE_INDEX — auto-trigger incremental index (matches handlePrCheck
+        // and prepush paths; previously this branch returned an error).
+        if (repo.path) {
+          await IndexingService.indexFolder(repo.id, repo.path);
+        }
       }
       const started = await startTrackedReview(pr, repo);
       if ("conflict" in started) {
