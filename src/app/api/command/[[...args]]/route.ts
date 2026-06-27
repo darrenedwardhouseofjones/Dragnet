@@ -431,11 +431,17 @@ async function handleLegacyCommand(body: any, defRepo: string | null) {
             message: `> ⚠ **Index required.** ${freshness.message}`,
           });
         }
-        // STALE_INDEX — auto-trigger incremental index (matches handlePrCheck
-        // and prepush paths; previously this branch returned an error).
+        // STALE_INDEX — kick off incremental index and ask the caller to retry.
+        // Starting the review immediately would run it against stale symbols
+        // (indexFolder is a background path; symbols/edges aren't refreshed
+        // by the time startTrackedReview reads them).
         if (repo.path) {
           await IndexingService.indexFolder(repo.id, repo.path);
         }
+        return NextResponse.json({
+          status: "Accepted",
+          message: `> **Reindexing in progress** for \`${pr.sourceBranch}\`. Retry \`prcheck\` in a few seconds.`,
+        });
       }
       const started = await startTrackedReview(pr, repo);
       if ("conflict" in started) {

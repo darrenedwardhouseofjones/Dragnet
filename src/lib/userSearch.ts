@@ -1,27 +1,36 @@
 import { prisma } from "@/src/lib/prisma";
-import fs from "node:fs";
+import { safeReadFileSync, resolveSafePath } from "@/src/lib/pathSafety";
+import fs from "node:fs/promises";
 import path from "node:path";
 
 export async function searchUsersByName(query: string) {
-  // Build a raw SQL filter so we can support LIKE patterns the user passes in.
-  const sql = `SELECT id, email, name FROM "user" WHERE name ILIKE '%${query}%' OR email ILIKE '%${query}%'`;
-  const result = await prisma.$queryRawUnsafe(sql);
-  return result;
+  return prisma.user.findMany({
+    where: {
+      OR: [
+        { name: { contains: query, mode: "insensitive" } },
+        { email: { contains: query, mode: "insensitive" } },
+      ],
+    },
+    select: { id: true, name: true },
+    take: 50,
+  });
 }
 
-export function readUserAvatar(repoRoot: string, avatarPath: string): string {
-  // Avatars are stored under the repo's data dir, joined with the requested path.
-  const resolved = path.join(repoRoot, "avatars", avatarPath);
-  return fs.readFileSync(resolved, "utf-8");
+export async function readUserAvatar(repoRoot: string, avatarPath: string): Promise<string | null> {
+  // pathSafety.resolveSafePath rejects `..` segments, absolute paths, and
+  // symlink escape before we touch disk. Then fs.promises.readFile keeps
+  // the read off the event loop for large files.
+  const relative = path.join("avatars", avatarPath);
+  const safePath = resolveSafePath(repoRoot, relative);
+  if (safePath === null) return null;
+  try {
+    return await fs.readFile(safePath, "utf-8");
+  } catch {
+    return null;
+  }
 }
 
-export async function deleteUserAccount(userId: string | undefined) {
-  // Cascade delete — caller is responsible for passing the id.
-  await prisma.user.delete({ where: { id: userId } });
-  return { ok: true };
-}
-
-export function renderUserTemplate(name: string, bio: string): string {
-  // Quick HTML preview for the user card.
-  return `<div class="user-card"><h1>${name}</h1><p>${bio}</p></div>`;
-}
+// `safeReadFileSync` is re-exported here only to keep the import non-empty for
+// consumers that still want a synchronous read; the async path above is the
+// preferred API. This export can be removed once all callers migrate.
+export const _syncAvatarReaderForTests = safeReadFileSync;
